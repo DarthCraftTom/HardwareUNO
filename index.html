@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hardware UNO - Multiplayer WebRTC</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #12121e; color: white; margin: 0;
+            display: flex; flex-direction: column; align-items: center;
+            height: 100vh; overflow: hidden;
+        }
+        h1 { margin-top: 5px; font-size: 20px; text-shadow: 2px 2px 4px #000; margin-bottom: 5px; }
+        
+        /* --- OBRAZOVKY --- */
+        .screen { display: none; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; }
+        .active-screen { display: flex; }
+        
+        /* Menu & Lobby UI */
+        .menu-box { background: rgba(0,0,0,0.8); padding: 30px; border-radius: 15px; text-align: center; border: 2px solid #333; max-width: 400px; width: 90%; }
+        input, select { width: 100%; padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #555; background: #222; color: white; font-size: 16px; box-sizing: border-box; text-align: center; }
+        .btn { background: #2980b9; color: white; border: none; padding: 12px 20px; font-size: 18px; font-weight: bold; border-radius: 5px; cursor: pointer; transition: 0.2s; width: 100%; margin-top: 10px; }
+        .btn:hover { background: #3498db; transform: scale(1.05); }
+        .btn-green { background: #27ae60; } .btn-green:hover { background: #2ecc71; }
+        
+        .lobby-players { list-style: none; padding: 0; margin: 20px 0; max-height: 200px; overflow-y: auto; text-align: left; background: #222; border-radius: 5px; padding: 10px; }
+        .lobby-players li { padding: 5px; border-bottom: 1px solid #444; }
+        
+        /* Game UI */
+        #game-board { flex-grow: 1; padding: 5px 0; justify-content: space-between; }
+        .player-area { display: flex; flex-direction: column; align-items: center; width: 100%; gap: 5px; }
+        .section-title { font-size: 12px; font-weight: bold; opacity: 0.8; margin-bottom: 2px; text-transform: uppercase; color: #aaa; }
+        
+        /* Oponenti (horní lišta) */
+        #opponents-container { display: flex; gap: 10px; overflow-x: auto; max-width: 95%; padding: 5px; }
+        .opponent-badge { background: #222; border: 2px solid #444; border-radius: 8px; padding: 8px 15px; text-align: center; min-width: 80px; transition: 0.3s; }
+        .opponent-badge.is-turn { border-color: #f1c40f; background: rgba(241, 196, 15, 0.2); box-shadow: 0 0 10px #f1c40f; }
+        .opp-name { font-weight: bold; font-size: 14px; margin-bottom: 5px; }
+        .opp-stats { font-size: 12px; color: #aaa; }
+        
+        /* Karty */
+        .hand { display: flex; gap: 10px; padding: 10px; overflow-x: auto; max-width: 95%; min-height: 160px; background: rgba(255,255,255,0.05); border-radius: 10px; }
+        .mods-container { display: flex; gap: 10px; padding: 8px; background: rgba(243, 156, 18, 0.05); border: 1px dashed #f39c12; border-radius: 10px; min-height: 130px; align-items: center; }
+        
+        .card { width: 100px; height: 145px; border-radius: 8px; background-color: #333; display: flex; flex-direction: column; justify-content: space-between; padding: 6px; box-sizing: border-box; cursor: pointer; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); transition: 0.2s; position: relative; flex-shrink: 0; }
+        .card.mod-card { width: 80px; height: 115px; font-size: 0.85em; }
+        .card:hover { transform: translateY(-10px); z-index: 10; }
+        .card.disabled { filter: grayscale(100%) opacity(0.5); cursor: not-allowed; }
+        .card.disabled:hover { transform: none; }
+        
+        .card.intel { border: 3px solid #0071C5; background: linear-gradient(135deg, #0071C5, #002244); }
+        .card.amd { border: 3px solid #E03C31; background: linear-gradient(135deg, #E03C31, #4a0d08); }
+        .card.nvidia { border: 3px solid #76B900; background: linear-gradient(135deg, #76B900, #223300); }
+        .card.modifier { border: 3px solid #f39c12; background: linear-gradient(135deg, #444, #111); color: #f39c12; }
+        
+        .card-header { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; }
+        .card-model { font-size: 12px; font-weight: bold; text-align: center; margin: auto 0; text-shadow: 1px 1px 2px #000; }
+        .card-stats { font-size: 10px; display: flex; flex-direction: column; gap: 2px; }
+        .stat-badge { background: rgba(0,0,0,0.6); padding: 2px; border-radius: 3px; text-align: center; }
+        .stat-score { color: #ffd700; font-weight: bold; }
+        .stat-expire { background: #e74c3c; color: white; }
+        
+        #middle-area { display: flex; gap: 30px; align-items: center; margin: 10px 0; }
+        #table { display: flex; gap: 15px; align-items: center; }
+        
+        #active-modifiers { display: flex; gap: 10px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 10px; border: 1px solid #555; }
+        .modifier-slot { width: 80px; height: 115px; border: 2px dashed #777; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 10px; color: #aaa; text-align: center; }
+        
+        #draw-pile { width: 100px; height: 145px; border-radius: 8px; background: linear-gradient(45deg, #555, #222); border: 3px solid #888; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+        #draw-pile:hover { transform: scale(1.05); } #draw-pile::after { content: "LÍZNOUT"; font-weight: bold; }
+        #draw-pile.disabled { opacity: 0.5; cursor: not-allowed; } #draw-pile.disabled:hover { transform: none; }
+        
+        #message-box { padding: 8px 20px; background: #27ae60; color: #fff; border-radius: 20px; font-weight: bold; margin-bottom: 5px; min-height: 20px; text-align: center; max-width: 90%; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 50% { transform: translateX(8px); } 75% { transform: translateX(-8px); } }
+        .shake { animation: shake 0.3s ease-in-out; }
+    </style>
+</head>
+<body>
+
+    <div id="screen-menu" class="screen active-screen">
+        <div class="menu-box">
+            <h1 style="font-size: 32px; color: #f39c12; margin-bottom: 20px;">Hardware UNO</h1>
+            <input type="text" id="player-name" placeholder="Tvoje přezdívka" maxlength="15">
+            <button class="btn btn-green" onclick="createGame()">Vytvořit hru (Host)</button>
+            <hr style="border-color: #444; margin: 20px 0;">
+            <input type="text" id="join-code" placeholder="Kód místnosti (např. HW-XYZ)" style="text-transform: uppercase;">
+            <button class="btn" onclick="joinGame()">Připojit se</button>
+            <p id="menu-status" style="color: #e74c3c; font-size: 14px; margin-top: 10px;"></p>
+        </div>
+    </div>
+
+    <div id="screen-lobby" class="screen">
+        <div class="menu-box">
+            <h2>Lobby</h2>
+            <p style="font-size: 18px;">Kód pro připojení: <strong id="lobby-code" style="color: #f1c40f; letter-spacing: 2px;">---</strong></p>
+            <p style="font-size: 12px; color: #aaa;">Pošli tento kód spoluhráčům. (Max 12 hráčů)</p>
+            
+            <ul class="lobby-players" id="lobby-player-list"></ul>
+            
+            <div id="host-controls" style="display: none;">
+                <select id="game-mode">
+                    <option value="CPU">Mód: Procesory (CPU)</option>
+                    <option value="GPU">Mód: Grafiky (GPU)</option>
+                </select>
+                <button class="btn btn-green" onclick="hostStartGame()">Spustit hru</button>
+            </div>
+            <div id="client-waiting" style="display: none;">
+                <p style="color: #3498db; font-weight: bold;">Čeká se na spuštění hry hostitelem...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <h1>HW UNO: <span id="ui-mode-title"></span></h1>
+        <div id="message-box">Načítání hry...</div>
+
+        <div id="game-board" class="active-screen">
+            <div class="player-area">
+                <div class="section-title">Ostatní hráči</div>
+                <div id="opponents-container"></div>
+            </div>
+
+            <div id="middle-area">
+                <div id="active-modifiers">
+                    <div id="mb-container">
+                        <div class="section-title" style="text-align: center; margin-bottom: 3px;">Aktivní Deska</div>
+                        <div id="active-mb" class="modifier-slot">Žádná deska</div>
+                    </div>
+                    <div>
+                        <div class="section-title" style="text-align: center; margin-bottom: 3px;">Aktivní Zdroj</div>
+                        <div id="active-psu" class="modifier-slot">Žádný zdroj</div>
+                    </div>
+                </div>
+                <div id="table">
+                    <div id="draw-pile" onclick="uiDrawCard()"></div>
+                    <div id="discard-pile"></div>
+                </div>
+            </div>
+
+            <div class="player-area">
+                <div style="display: flex; gap: 20px; align-items: flex-start; justify-content: center; width: 100%;">
+                    <div style="flex-grow: 1; max-width: 70%;">
+                        <div class="section-title" style="text-align: center;">Tvé Hardwarové Karty (<span id="my-card-count">0</span>)</div>
+                        <div id="player-hand" class="hand"></div>
+                    </div>
+                    <div>
+                        <div class="section-title" style="text-align: center; color: #f39c12;">Tvé Ultimátky</div>
+                        <div id="player-mods" class="mods-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATABÁZE KARET ---
+        const cpuCards = [
+            { type: 'CPU', brand: 'AMD', model: 'Ryzen 5 5600X', score: 22000, socket: 'AM4', tdp: 65, colorClass: 'amd' },
+            { type: 'CPU', brand: 'AMD', model: 'Ryzen 7 5800X3D', score: 28000, socket: 'AM4', tdp: 105, colorClass: 'amd' },
+            { type: 'CPU', brand: 'AMD', model: 'Ryzen 7 7800X3D', score: 36000, socket: 'AM5', tdp: 120, colorClass: 'amd' },
+            { type: 'CPU', brand: 'AMD', model: 'Ryzen 9 9950X', score: 65000, socket: 'AM5', tdp: 170, colorClass: 'amd' },
+            { type: 'CPU', brand: 'Intel', model: 'Core i5-11400F', score: 17000, socket: 'LGA 1200', tdp: 65, colorClass: 'intel' },
+            { type: 'CPU', brand: 'Intel', model: 'Core i9-11900K', score: 25000, socket: 'LGA 1200', tdp: 125, colorClass: 'intel' },
+            { type: 'CPU', brand: 'Intel', model: 'Core i5-14600K', score: 38000, socket: 'LGA 1700', tdp: 125, colorClass: 'intel' },
+            { type: 'CPU', brand: 'Intel', model: 'Core i9-14900K', score: 60000, socket: 'LGA 1700', tdp: 253, colorClass: 'intel' }
+        ];
+        const gpuCards = [
+            { type: 'GPU', brand: 'AMD', model: 'RX 7600', score: 16000, vram: '8GB', tdp: 165, colorClass: 'amd' },
+            { type: 'GPU', brand: 'AMD', model: 'RX 7800 XT', score: 28000, vram: '16GB', tdp: 263, colorClass: 'amd' },
+            { type: 'GPU', brand: 'Intel', model: 'Arc A770', score: 13000, vram: '16GB', tdp: 225, colorClass: 'intel' },
+            { type: 'GPU', brand: 'Nvidia', model: 'RTX 4060', score: 15000, vram: '8GB', tdp: 115, colorClass: 'nvidia' },
+            { type: 'GPU', brand: 'Nvidia', model: 'RTX 4070', score: 27000, vram: '12GB', tdp: 200, colorClass: 'nvidia' },
+            { type: 'GPU', brand: 'Nvidia', model: 'RTX 4090', score: 55000, vram: '24GB', tdp: 450, colorClass: 'nvidia' }
+        ];
+        const mbMods = [
+            { type: 'MB', brand: 'Ultimátka', model: 'Deska AM4', socketLimit: 'AM4', colorClass: 'modifier' },
+            { type: 'MB', brand: 'Ultimátka', model: 'Deska AM5', socketLimit: 'AM5', colorClass: 'modifier' },
+            { type: 'MB', brand: 'Ultimátka', model: 'Deska LGA1200', socketLimit: 'LGA 1200', colorClass: 'modifier' },
+            { type: 'MB', brand: 'Ultimátka', model: 'Deska LGA1700', socketLimit: 'LGA 1700', colorClass: 'modifier' }
+        ];
+        const psuModsCPU = [
+            { type: 'PSU', brand: 'Ultimátka', model: 'Zdroj 350W', maxTdp: 65, colorClass: 'modifier' },
+            { type: 'PSU', brand: 'Ultimátka', model: 'Zdroj 500W', maxTdp: 125, colorClass: 'modifier' },
+            { type: 'PSU', brand: 'Ultimátka', model: 'Zdroj 850W', maxTdp: 200, colorClass: 'modifier' }
+        ];
+        const psuModsGPU = [
+            { type: 'PSU', brand: 'Ultimátka', model: 'Zdroj 450W', maxTdp: 170, colorClass: 'modifier' },
+            { type: 'PSU', brand: 'Ultimátka', model: 'Zdroj 650W', maxTdp: 270, colorClass: 'modifier' },
+            { type: 'PSU', brand: 'Ultimátka', model: 'Zdroj 1000W', maxTdp: 500, colorClass: 'modifier' }
+        ];
+
+        // --- SÍŤOVÉ A STAVOVÉ PROMĚNNÉ ---
+        let peer = null;
+        let isHost = false;
+        let myId = '';
+        let myName = '';
+        let connections = []; // Pro Hostitele (seznam spojení)
+        let hostConnection = null; // Pro Klienta (spojení na hosta)
+        
+        // Globální stav (udržuje ho Hostitel a posílá ho Klientům)
+        let gameState = {
+            started: false,
+            mode: 'CPU',
+            players: [], // { id, name, hand: [], mods: [] }
+            turnIndex: 0,
+            deck: [],
+            discardPile: [],
+            activeMB: null,
+            activePSU: null,
+            systemMessage: "Čeká se na hráče...",
+            messageColor: '#27ae60'
+        };
+        
+        // --- POMOCNÉ FUNKCE ---
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
+            document.getElementById(id).classList.add('active-screen');
+        }
+        function setStatus(msg) { document.getElementById('menu-status').innerText = msg; }
+        function generateRoomCode() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let res = 'HW-';
+            for(let i=0; i<4; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+            return res;
+        }
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+        function triggerShake() {
+            const msgBox = document.getElementById('message-box');
+            msgBox.classList.remove('shake');
+            void msgBox.offsetWidth; 
+            msgBox.classList.add('shake');
+        }
+
+        // --- INICIALIZACE PEERJS (SÍŤ) ---
+        function createGame() {
+            myName = document.getElementById('player-name').value.trim() || 'Hostitel';
+            let roomCode = generateRoomCode();
+            setStatus("Vytvářím místnost...");
+            
+            peer = new Peer(roomCode);
+            peer.on('open', (id) => {
+                isHost = true;
+                myId = id;
+                document.getElementById('lobby-code').innerText = id;
+                document.getElementById('host-controls').style.display = 'block';
+                
+                // Přidám sebe do seznamu hráčů
+                gameState.players.push({ id: myId, name: myName, hand: [], mods: [] });
+                updateLobbyUI();
+                showScreen('screen-lobby');
+            });
+
+            // Přijímání klientů
+            peer.on('connection', (conn) => {
+                if (gameState.started || gameState.players.length >= 12) {
+                    conn.send({ type: 'error', msg: 'Hra už začala nebo je plná.' });
+                    setTimeout(() => conn.close(), 1000);
+                    return;
+                }
+                connections.push(conn);
+                conn.on('data', (data) => handleDataFromClient(conn, data));
+                conn.on('close', () => removePlayer(conn.peer));
+            });
+
+            peer.on('error', (err) => { setStatus("Chyba spojení: " + err.type); });
+        }
+
+        function joinGame() {
+            myName = document.getElementById('player-name').value.trim() || 'Hráč';
+            let roomCode = document.getElementById('join-code').value.trim().toUpperCase();
+            if(!roomCode) return setStatus("Zadej kód místnosti!");
+            setStatus("Připojuji se...");
+
+            peer = new Peer(); // Klient má náhodné ID
+            peer.on('open', (id) => {
+                myId = id;
+                hostConnection = peer.connect(roomCode);
+                
+                hostConnection.on('open', () => {
+                    isHost = false;
+                    document.getElementById('lobby-code').innerText = roomCode;
+                    document.getElementById('client-waiting').style.display = 'block';
+                    hostConnection.send({ type: 'join', name: myName });
+                    showScreen('screen-lobby');
+                });
+
+                hostConnection.on('data', (data) => {
+                    if (data.type === 'error') { alert(data.msg); location.reload(); }
+                    else if (data.type === 'lobbyUpdate') {
+                        gameState.players = data.players;
+                        updateLobbyUI();
+                    }
+                    else if (data.type === 'gameState') {
+                        // Přijetí herního stavu od hosta
+                        if(!gameState.started) {
+                            gameState.started = true;
+                            document.getElementById('ui-mode-title').innerText = data.state.mode + " Edice";
+                            document.getElementById('mb-container').style.display = data.state.mode === 'CPU' ? 'block' : 'none';
+                            showScreen('screen-game');
+                        }
+                        renderGameState(data.state);
+                    }
+                });
+
+                hostConnection.on('close', () => { alert("Spojení s hostitelem ztraceno."); location.reload(); });
+            });
+            peer.on('error', (err) => { setStatus("Nelze se připojit k místnosti."); });
+        }
+
+        // --- LOBBY LOGIKA ---
+        function handleDataFromClient(conn, data) {
+            if (data.type === 'join') {
+                gameState.players.push({ id: conn.peer, name: data.name, hand: [], mods: [] });
+                broadcastLobby();
+            } else if (data.type === 'action') {
+                hostProcessAction(conn.peer, data.action, data.payload);
+            }
+        }
+        function removePlayer(peerId) {
+            if(gameState.started) return; // Ztráta spojení ve hře by se řešila složitěji, pro teď ignorujeme
+            gameState.players = gameState.players.filter(p => p.id !== peerId);
+            connections = connections.filter(c => c.peer !== peerId);
+            broadcastLobby();
+        }
+        function broadcastLobby() {
+            let pData = gameState.players.map(p => ({name: p.name}));
+            connections.forEach(c => c.send({ type: 'lobbyUpdate', players: pData }));
+            updateLobbyUI();
+        }
+        function updateLobbyUI() {
+            const list = document.getElementById('lobby-player-list');
+            list.innerHTML = '';
+            gameState.players.forEach(p => {
+                let li = document.createElement('li');
+                li.innerText = p.name + (p.id === myId ? " (Ty)" : "");
+                list.appendChild(li);
+            });
+        }
+
+        // --- HOST LOGIKA: START HRY ---
+        function hostStartGame() {
+            if(gameState.players.length < 2) return alert("Musíte být alespoň 2!");
+            gameState.mode = document.getElementById('game-mode').value;
+            
+            // Sestavení balíčku (víc hráčů = víc karet)
+            let baseCards = gameState.mode === 'CPU' ? cpuCards : gpuCards;
+            let decksNeeded = Math.ceil(gameState.players.length / 3) * 4; 
+            gameState.deck = [];
+            for(let i=0; i<decksNeeded; i++) gameState.deck = gameState.deck.concat(JSON.parse(JSON.stringify(baseCards)));
+            shuffle(gameState.deck);
+
+            // Rozdání
+            gameState.players.forEach(p => {
+                p.hand = gameState.deck.splice(0, 7);
+                p.mods = [];
+                if (gameState.mode === 'CPU') {
+                    p.mods.push(JSON.parse(JSON.stringify(mbMods[Math.floor(Math.random() * mbMods.length)])));
+                    p.mods.push(JSON.parse(JSON.stringify(psuModsCPU[Math.floor(Math.random() * psuModsCPU.length)])));
+                } else {
+                    p.mods.push(JSON.parse(JSON.stringify(psuModsGPU[Math.floor(Math.random() * psuModsGPU.length)])));
+                }
+            });
+
+            // První karta
+            gameState.discardPile = [gameState.deck.pop()];
+            gameState.turnIndex = 0;
+            gameState.started = true;
+            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " je na tahu.";
+            
+            document.getElementById('ui-mode-title').innerText = gameState.mode + " Edice";
+            document.getElementById('mb-container').style.display = gameState.mode === 'CPU' ? 'block' : 'none';
+            showScreen('screen-game');
+            broadcastGameState();
+        }
+
+        // Host posílá stav všem (pro každého klienta stav upravíme, aby neviděl cizí karty)
+        function broadcastGameState() {
+            // Lokální render pro hosta
+            renderGameState(createStateForClient(myId));
+            
+            // Odeslání klientům
+            connections.forEach(c => {
+                c.send({ type: 'gameState', state: createStateForClient(c.peer) });
+            });
+        }
+
+        function createStateForClient(targetId) {
+            // Kopie stavu pro konkrétního klienta (ostatním hráčům skryjeme přesné karty, pošleme jen počty)
+            let stateCopy = JSON.parse(JSON.stringify(gameState));
+            stateCopy.players = stateCopy.players.map(p => {
+                if (p.id === targetId) return p; // Své karty vidí
+                return { id: p.id, name: p.name, cardCount: p.hand.length, modCount: p.mods.length };
+            });
+            stateCopy.myId = targetId; // Klient musí vědět, který objekt hráče je jeho
+            return stateCopy;
+        }
+
+        // --- HOST LOGIKA: ZPRACOVÁNÍ TAHŮ ---
+        function hostProcessAction(playerId, action, payload) {
+            let pIndex = gameState.players.findIndex(p => p.id === playerId);
+            if(pIndex !== gameState.turnIndex) return; // Není na tahu
+
+            let player = gameState.players[pIndex];
+
+            if (action === 'draw') {
+                if (gameState.deck.length === 0) {
+                    let top = gameState.discardPile.pop();
+                    gameState.deck = gameState.discardPile;
+                    shuffle(gameState.deck);
+                    gameState.discardPile = [top];
+                }
+                player.hand.push(gameState.deck.pop());
+                hostAdvanceTurn(player.name + " si lízl kartu.");
+            } 
+            else if (action === 'playHW' || action === 'playMod') {
+                let isMod = (action === 'playMod');
+                let targetArray = isMod ? player.mods : player.hand;
+                let card = targetArray.splice(payload.index, 1)[0];
+                let topCard = gameState.discardPile[gameState.discardPile.length - 1];
+                let msg = player.name + " zahrál " + card.model + ".";
+
+                if (card.type === 'MB') {
+                    gameState.activeMB = card;
+                    gameState.activeMB.turnsLeft = gameState.players.length * 5; // Platí 5 kol
+                    msg = player.name + " zahrál ultimátku (Socket)!";
+                } else if (card.type === 'PSU') {
+                    gameState.activePSU = card;
+                    gameState.activePSU.turnsLeft = gameState.players.length * 5;
+                    msg = player.name + " zahrál ultimátku (Zdroj)!";
+                } else {
+                    gameState.discardPile.push(card);
+                    if (card.brand !== topCard.brand && card.score > topCard.score) {
+                        msg += " Přebil konkurenci!";
+                    } else if (card.brand === topCard.brand && card.score < topCard.score) {
+                        msg += " BOTTLENECK! Lízá kartu.";
+                        player.hand.push(gameState.deck.pop()); // Rychlý postih
+                    }
+                }
+
+                if (player.hand.length === 0) {
+                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! 🎉";
+                    gameState.messageColor = '#f1c40f';
+                    broadcastGameState();
+                    return; // Konec hry
+                }
+                hostAdvanceTurn(msg);
+            }
+        }
+
+        function hostAdvanceTurn(baseMsg) {
+            let modsMsg = "";
+            if (gameState.activeMB) {
+                gameState.activeMB.turnsLeft--;
+                if (gameState.activeMB.turnsLeft <= 0) { gameState.activeMB = null; modsMsg += "[Deska vypršela] "; }
+            }
+            if (gameState.activePSU) {
+                gameState.activePSU.turnsLeft--;
+                if (gameState.activePSU.turnsLeft <= 0) { gameState.activePSU = null; modsMsg += "[Zdroj vypršel] "; }
+            }
+
+            gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
+            let nextPlayerName = gameState.players[gameState.turnIndex].name;
+            
+            gameState.systemMessage = baseMsg + " " + modsMsg + "Na tahu: " + nextPlayerName;
+            gameState.messageColor = '#2980b9';
+            
+            broadcastGameState();
+        }
+
+        // --- KLIENT/UI LOGIKA (Společné pro Hosta i Klienty) ---
+        let currentClientState = null;
+
+        function renderGameState(state) {
+            currentClientState = state;
+            
+            const msgBox = document.getElementById('message-box');
+            msgBox.innerText = state.systemMessage;
+            msgBox.style.background = state.messageColor;
+
+            // Najdi můj objekt hráče
+            let me = state.players.find(p => p.id === state.myId);
+            let isMyTurn = (state.players[state.turnIndex].id === state.myId);
+
+            if(isMyTurn) {
+                msgBox.innerText = "Tvoje kolo! Zahrál: " + state.systemMessage;
+                msgBox.style.background = '#27ae60';
+            }
+
+            // --- Zobrazení Oponentů ---
+            const oppContainer = document.getElementById('opponents-container');
+            oppContainer.innerHTML = '';
+            state.players.forEach((p, idx) => {
+                if(p.id === state.myId) return; // Sebe nahoru nekreslím
+                let div = document.createElement('div');
+                div.className = 'opponent-badge' + (idx === state.turnIndex ? ' is-turn' : '');
+                div.innerHTML = `<div class="opp-name">${p.name}</div>
+                                 <div class="opp-stats">🃏 ${p.cardCount} | ⚡ ${p.modCount}</div>`;
+                oppContainer.appendChild(div);
+            });
+
+            // --- Zobrazení Stolu ---
+            let topCard = state.discardPile[state.discardPile.length - 1];
+            document.getElementById('discard-pile').innerHTML = createCardHTML(topCard);
+
+            if (state.mode === 'CPU') {
+                if (state.activeMB) {
+                    document.getElementById('active-mb').innerHTML = createCardHTML(state.activeMB);
+                    document.getElementById('active-mb').style.border = 'none';
+                } else {
+                    document.getElementById('active-mb').innerHTML = 'Žádná deska';
+                    document.getElementById('active-mb').style.border = '2px dashed #777';
+                }
+            }
+            if (state.activePSU) {
+                document.getElementById('active-psu').innerHTML = createCardHTML(state.activePSU);
+                document.getElementById('active-psu').style.border = 'none';
+            } else {
+                document.getElementById('active-psu').innerHTML = 'Žádný zdroj';
+                document.getElementById('active-psu').style.border = '2px dashed #777';
+            }
+
+            // Balíček pro lízání
+            const drawPile = document.getElementById('draw-pile');
+            if(isMyTurn) drawPile.classList.remove('disabled');
+            else drawPile.classList.add('disabled');
+
+            // --- Tvoje Karty ---
+            document.getElementById('my-card-count').innerText = me.hand.length;
+            
+            let handHtml = '';
+            me.hand.forEach((card, idx) => {
+                let check = uiCanPlay(card, state);
+                let extraClass = (!isMyTurn || !check.valid) ? 'disabled' : '';
+                handHtml += createCardHTML(card, extraClass, `uiPlayCard(${idx}, false)`);
+            });
+            document.getElementById('player-hand').innerHTML = handHtml;
+
+            let modsHtml = '';
+            me.mods.forEach((card, idx) => {
+                let check = uiCanPlay(card, state);
+                let extraClass = (!isMyTurn || !check.valid) ? 'disabled' : '';
+                modsHtml += createCardHTML(card, extraClass, `uiPlayCard(${idx}, true)`, true);
+            });
+            document.getElementById('player-mods').innerHTML = modsHtml;
+        }
+
+        // Lokální kontrola pravidel pro UI (aby nešlo kliknout na špatnou)
+        function uiCanPlay(card, state) {
+            if (card.type === 'MB' || card.type === 'PSU') return { valid: true };
+            if (state.activePSU && card.tdp > state.activePSU.maxTdp) return { valid: false, reason: "Zdroj to neutáhne!" };
+            if (state.mode === 'CPU' && state.activeMB && card.socket !== state.activeMB.socketLimit) return { valid: false, reason: "Špatný socket!" };
+
+            let topCard = state.discardPile[state.discardPile.length - 1];
+            if (card.brand !== topCard.brand) {
+                if (card.score > topCard.score) return { valid: true };
+                else return { valid: false, reason: "Přebití vyžaduje vyšší výkon!" };
+            }
+            return { valid: true };
+        }
+
+        // Kliknutí na kartu
+        function uiPlayCard(index, isMod) {
+            if(!currentClientState) return;
+            let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === currentClientState.myId);
+            if(!isMyTurn) return;
+
+            let me = currentClientState.players.find(p => p.id === currentClientState.myId);
+            let card = isMod ? me.mods[index] : me.hand[index];
+            
+            let check = uiCanPlay(card, currentClientState);
+            if(!check.valid) {
+                const msgBox = document.getElementById('message-box');
+                msgBox.innerText = check.reason;
+                msgBox.style.background = '#e74c3c';
+                triggerShake();
+                return;
+            }
+
+            sendAction(isMod ? 'playMod' : 'playHW', { index: index });
+        }
+
+        // Kliknutí na balíček
+        function uiDrawCard() {
+            if(!currentClientState) return;
+            let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === currentClientState.myId);
+            if(!isMyTurn) return;
+            sendAction('draw', {});
+        }
+
+        function sendAction(actionType, payload) {
+            // Skryjeme UI okamžitě po kliku, abychom zamezili double-clicku
+            document.getElementById('draw-pile').classList.add('disabled');
+            if(isHost) {
+                hostProcessAction(myId, actionType, payload);
+            } else {
+                hostConnection.send({ type: 'action', action: actionType, payload: payload });
+            }
+        }
+
+        // Generátor HTML karty
+        function createCardHTML(card, extraClass = '', onClick = '', isModUI = false) {
+            let sizeClass = isModUI ? 'mod-card' : '';
+            
+            let statsHtml = '';
+            if (card.type === 'CPU') {
+                statsHtml = `<div class="stat-badge stat-score">Score: ${card.score}</div>
+                             <div class="stat-badge">${card.socket}</div>
+                             <div class="stat-badge">${card.tdp} W</div>`;
+            } else if (card.type === 'GPU') {
+                statsHtml = `<div class="stat-badge stat-score">Score: ${card.score}</div>
+                             <div class="stat-badge">${card.vram}</div>
+                             <div class="stat-badge">${card.tdp} W</div>`;
+            } else if (card.type === 'MB') {
+                statsHtml = `<div class="stat-badge" style="color:#f39c12">Pouze ${card.socketLimit}</div>`;
+            } else if (card.type === 'PSU') {
+                statsHtml = `<div class="stat-badge" style="color:#f39c12">Max: ${card.maxTdp}W</div>`;
+            }
+
+            if (card.turnsLeft !== undefined && !isModUI) {
+                let celakola = Math.ceil(card.turnsLeft / currentClientState.players.length);
+                statsHtml += `<div class="stat-badge stat-expire">Kola: ${celakola}</div>`;
+            }
+
+            return `
+                <div class="card ${card.colorClass} ${sizeClass} ${extraClass}" onclick="${onClick}">
+                    <div class="card-header">
+                        <span style="text-transform:uppercase">${card.type}</span>
+                        <span style="opacity:0.8">${card.brand}</span>
+                    </div>
+                    <div class="card-model">${card.model}</div>
+                    <div class="card-stats">${statsHtml}</div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
