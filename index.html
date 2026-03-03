@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hardware UNO - Multiplayer & UI Update</title>
+    <title>Hardware UNO - Opravený Multiplayer</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -50,7 +50,7 @@
         .opponent-badge { background: rgba(0,0,0,0.5); border: 2px solid transparent; border-radius: 10px; padding: 10px 20px; text-align: center; min-width: 90px; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         .opponent-badge.is-turn { border-color: var(--warning); background: rgba(241, 196, 15, 0.15); box-shadow: 0 0 15px rgba(241, 196, 15, 0.4); transform: scale(1.05); }
         .opp-name { font-weight: bold; font-size: 14px; margin-bottom: 5px; color: #eee; }
-        .opp-stats { font-size: 13px; color: #aaa; display: flex; justify-content: space-around; }
+        .opp-stats { font-size: 13px; color: #aaa; display: flex; justify-content: space-around; gap: 10px; }
         
         /* Hrací stůl (Střed) */
         #middle-area { display: flex; justify-content: center; align-items: center; gap: 50px; background: var(--table-bg); border-radius: 20px; margin: 10px 0; padding: 25px; flex-grow: 1; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 0 50px rgba(0,0,0,0.5); }
@@ -58,9 +58,9 @@
         #table-center { display: flex; gap: 20px; align-items: center; }
         .modifier-slot { width: 90px; height: 130px; border: 2px dashed #666; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 11px; color: #888; text-align: center; background: rgba(0,0,0,0.2); }
         
-        #draw-pile { width: 110px; height: 155px; border-radius: 10px; background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px); border: 3px solid #666; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); transition: 0.2s; }
-        #draw-pile:hover:not(.disabled) { transform: translateY(-5px) scale(1.02); box-shadow: 4px 8px 15px rgba(0,0,0,0.7); border-color: #888; }
-        #draw-pile::after { content: "LÍZNOUT"; font-weight: bold; letter-spacing: 1px; color: #ccc; }
+        #draw-pile { width: 110px; height: 155px; border-radius: 10px; background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px); border: 3px solid #666; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); transition: 0.2s; }
+        #draw-pile:hover:not(.disabled) { transform: translateY(-5px) scale(1.02); box-shadow: 4px 8px 15px rgba(0,0,0,0.7); border-color: #aaa; }
+        #draw-pile::after { content: "LÍZNOUT\A(Přeskočí tah)"; white-space: pre; text-align: center; font-weight: bold; letter-spacing: 1px; color: #ddd; font-size: 12px; line-height: 1.4; }
         
         /* Karty hráče (Dole) */
         #player-area-wrapper { display: flex; gap: 30px; align-items: stretch; justify-content: center; width: 100%; padding: 5px 0; }
@@ -232,7 +232,7 @@
         
         let gameState = {
             started: false,
-            winnerDeclared: false, // Flag pro zablokování tahů po výhře
+            winnerDeclared: false,
             mode: 'CPU',
             players: [], 
             turnIndex: 0,
@@ -329,14 +329,13 @@
                     else if (data.type === 'gameState') {
                         if(!gameState.started) {
                             gameState.started = true;
-                            document.getElementById('ui-mode-title').innerText = data.state.mode;
+                            document.getElementById('ui-mode-title').innerText = data.state.mode + " Edice";
                             document.getElementById('mb-container').style.display = data.state.mode === 'CPU' ? 'block' : 'none';
                             showScreen('screen-game');
                         }
                         renderGameState(data.state);
                     }
                     else if (data.type === 'returnToLobby') {
-                        // Přepnutí zpět do lobby
                         gameState.started = false;
                         showScreen('screen-lobby');
                     }
@@ -380,7 +379,7 @@
 
         // --- HOST: START A NÁVRAT Z HRY ---
         function hostStartGame() {
-            if(gameState.players.length < 2) return alert("Musíte být alespoň 2!");
+            if(gameState.players.length < 2) return alert("Musíte být alespoň 2 hráči!");
             gameState.mode = document.getElementById('game-mode').value;
             gameState.winnerDeclared = false;
             
@@ -409,7 +408,7 @@
             gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " je na tahu.";
             gameState.messageColor = '#27ae60';
             
-            document.getElementById('ui-mode-title').innerText = gameState.mode;
+            document.getElementById('ui-mode-title').innerText = gameState.mode + " Edice";
             document.getElementById('mb-container').style.display = gameState.mode === 'CPU' ? 'block' : 'none';
             showScreen('screen-game');
             broadcastGameState();
@@ -418,9 +417,7 @@
         function hostReturnToLobby() {
             gameState.started = false;
             gameState.winnerDeclared = false;
-            // Odeslání pokynu klientům
             connections.forEach(c => c.send({ type: 'returnToLobby' }));
-            // Přepnutí UI u hosta
             showScreen('screen-lobby');
             updateLobbyUI();
         }
@@ -442,6 +439,20 @@
             return stateCopy;
         }
 
+        // --- BEZPEČNÉ LÍZÁNÍ KARET PRO HOSTA ---
+        function safeDrawFromDeck(player) {
+            // Pokud došly karty v dobíracím balíčku, musíme přemíchat odkládací
+            if (gameState.deck.length === 0) {
+                if (gameState.discardPile.length <= 1) return false; // Nejsou už vůbec žádné karty
+                let top = gameState.discardPile.pop(); // Schováme vrchní kartu stolu
+                gameState.deck = gameState.discardPile; // Přesuneme zbytek
+                shuffle(gameState.deck); // Zamícháme
+                gameState.discardPile = [top]; // Vrátíme vrchní kartu na stůl
+            }
+            player.hand.push(gameState.deck.pop());
+            return true;
+        }
+
         // --- HOST LOGIKA: ZPRACOVÁNÍ TAHŮ ---
         function hostProcessAction(playerId, action, payload) {
             if (gameState.winnerDeclared) return; // Zablokovat tahy po výhře
@@ -452,14 +463,9 @@
             let player = gameState.players[pIndex];
 
             if (action === 'draw') {
-                if (gameState.deck.length === 0) {
-                    let top = gameState.discardPile.pop();
-                    gameState.deck = gameState.discardPile;
-                    shuffle(gameState.deck);
-                    gameState.discardPile = [top];
-                }
-                player.hand.push(gameState.deck.pop());
-                hostAdvanceTurn(player.name + " si lízl kartu.");
+                let success = safeDrawFromDeck(player);
+                let msg = success ? player.name + " si lízl kartu a přeskočil tah." : player.name + " chtěl lízat, ale nejsou karty!";
+                hostAdvanceTurn(msg);
             } 
             else if (action === 'playHW' || action === 'playMod') {
                 let isMod = (action === 'playMod');
@@ -481,15 +487,15 @@
                     if (card.brand !== topCard.brand && card.score > topCard.score) {
                         msg += " Přebil konkurenci!";
                     } else if (card.brand === topCard.brand && card.score < topCard.score) {
-                        msg += " BOTTLENECK! Lízá kartu.";
-                        player.hand.push(gameState.deck.pop()); 
+                        let success = safeDrawFromDeck(player);
+                        msg += success ? " BOTTLENECK! Penalizace 1 karta." : " BOTTLENECK! (Ale došly karty)";
                     }
                 }
 
                 // KONTROLA VÝHRY
                 if (player.hand.length === 0) {
                     gameState.winnerDeclared = true;
-                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL! Návrat do lobby za 5s... 🎉";
+                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby za 5s... 🎉";
                     gameState.messageColor = '#f39c12';
                     broadcastGameState();
                     
@@ -532,6 +538,8 @@
             msgBox.style.background = state.messageColor;
 
             let me = state.players.find(p => p.id === state.myId);
+            if (!me) return;
+
             let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === state.myId);
 
             if(isMyTurn) {
@@ -560,7 +568,7 @@
                     document.getElementById('active-mb').innerHTML = createCardHTML(state.activeMB);
                     document.getElementById('active-mb').style.border = 'none';
                 } else {
-                    document.getElementById('active-mb').innerHTML = 'Žádná deska<br><span style="font-size:8px; opacity:0.5;">(Volný socket)</span>';
+                    document.getElementById('active-mb').innerHTML = 'Žádná deska<br><span style="font-size:9px; opacity:0.6;">(Volný socket)</span>';
                     document.getElementById('active-mb').style.border = '2px dashed #666';
                 }
             }
@@ -568,7 +576,7 @@
                 document.getElementById('active-psu').innerHTML = createCardHTML(state.activePSU);
                 document.getElementById('active-psu').style.border = 'none';
             } else {
-                document.getElementById('active-psu').innerHTML = 'Žádný zdroj<br><span style="font-size:8px; opacity:0.5;">(Neomezené TDP)</span>';
+                document.getElementById('active-psu').innerHTML = 'Žádný zdroj<br><span style="font-size:9px; opacity:0.6;">(Neomezené TDP)</span>';
                 document.getElementById('active-psu').style.border = '2px dashed #666';
             }
 
@@ -600,7 +608,7 @@
             if (state.winnerDeclared) return { valid: false, reason: "Hra skončila!" };
             if (card.type === 'MB' || card.type === 'PSU') return { valid: true };
             if (state.activePSU && card.tdp > state.activePSU.maxTdp) return { valid: false, reason: "Zdroj to neutáhne!" };
-            if (state.mode === 'CPU' && state.activeMB && card.socket !== state.activeMB.socketLimit) return { valid: false, reason: "Špatný socket!" };
+            if (state.mode === 'CPU' && state.activeMB && card.socket !== state.activeMB.socketLimit) return { valid: false, reason: "Špatný socket pro tuto desku!" };
 
             let topCard = state.discardPile[state.discardPile.length - 1];
             if (card.brand !== topCard.brand) {
@@ -633,12 +641,12 @@
             if(!currentClientState || currentClientState.winnerDeclared) return;
             let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === currentClientState.myId);
             if(!isMyTurn) return;
-            sendAction('draw', {});
+            sendAction('draw', null);
         }
 
         function sendAction(actionType, payload) {
             document.getElementById('draw-pile').classList.add('disabled');
-            // Zablokujeme hned vizuálně karty, aby nešlo prokliknout dvakrát
+            // Zablokujeme hned vizuálně karty, aby nešlo prokliknout dvakrát (než dorazí nový stav od serveru)
             document.querySelectorAll('#player-hand .card, #player-mods .card').forEach(c => c.classList.add('disabled'));
             
             if(isHost) { hostProcessAction(myId, actionType, payload); } 
@@ -646,7 +654,7 @@
         }
 
         function createCardHTML(card, extraClass = '', onClick = '', isModUI = false) {
-            if (!card) return ''; // Ošetření prázdného balíčku
+            if (!card) return ''; 
             let sizeClass = isModUI ? 'mod-card' : '';
             
             let statsHtml = '';
