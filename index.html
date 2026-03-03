@@ -2,8 +2,8 @@
 <html lang="cs">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hardware UNO - Stabilní připojení</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hardware UNO - Web Hosted Edition</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -19,16 +19,16 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: radial-gradient(circle at 50% 30%, #1e1e2f, var(--bg-color));
             color: white; margin: 0; display: flex; flex-direction: column; align-items: center;
-            height: 100vh; overflow: hidden;
+            height: 100vh; overflow: hidden; touch-action: manipulation;
         }
-        h1 { margin: 10px 0; font-size: 22px; text-shadow: 2px 2px 5px #000; letter-spacing: 1px; }
+        h1 { margin: 10px 0; font-size: 22px; text-shadow: 2px 2px 5px #000; letter-spacing: 1px; text-align: center; }
         
         /* --- OBRAZOVKY --- */
         .screen { display: none; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; }
         .active-screen { display: flex; }
         
         /* Menu & Lobby UI */
-        .menu-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 30px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .menu-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: rgba(0,0,0,0.5); color: white; font-size: 16px; box-sizing: border-box; text-align: center; outline: none; transition: border 0.3s; }
         input:focus { border-color: var(--primary); }
         
@@ -46,56 +46,54 @@
         .lobby-players li::before { content: "👤"; margin-right: 10px; font-size: 14px; }
         .lobby-players li:last-child { border-bottom: none; }
         
-        /* --- HERNÍ PLOCHA (UI REDESIGN) --- */
-        #game-board { flex-grow: 1; padding: 10px; justify-content: space-between; width: 100%; max-width: 1200px; box-sizing: border-box; }
+        /* --- HERNÍ PLOCHA --- */
+        #game-board { flex-grow: 1; padding: 5px; justify-content: space-between; width: 100%; max-width: 1200px; box-sizing: border-box; }
         
-        .section-title { font-size: 12px; font-weight: bold; opacity: 0.6; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; color: #fff; text-align: center; }
+        .section-title { font-size: 11px; font-weight: bold; opacity: 0.7; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; color: #fff; text-align: center; }
         
-        /* Oponenti (horní lišta) */
-        #opponents-container { display: flex; gap: 15px; overflow-x: auto; width: 100%; padding: 10px 5px; justify-content: center; }
-        .opponent-badge { background: rgba(0,0,0,0.5); border: 2px solid transparent; border-radius: 10px; padding: 10px 20px; text-align: center; min-width: 90px; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .opponent-badge.is-turn { border-color: var(--warning); background: rgba(241, 196, 15, 0.15); box-shadow: 0 0 15px rgba(241, 196, 15, 0.4); transform: scale(1.05); }
-        .opp-name { font-weight: bold; font-size: 14px; margin-bottom: 5px; color: #eee; }
-        .opp-stats { font-size: 13px; color: #aaa; display: flex; justify-content: space-around; gap: 10px; }
+        /* Oponenti */
+        #opponents-container { display: flex; gap: 10px; overflow-x: auto; width: 100%; padding: 5px; justify-content: center; }
+        .opponent-badge { background: rgba(0,0,0,0.5); border: 2px solid transparent; border-radius: 10px; padding: 8px 15px; text-align: center; min-width: 80px; transition: 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .opponent-badge.is-turn { border-color: var(--warning); background: rgba(241, 196, 15, 0.15); box-shadow: 0 0 10px rgba(241, 196, 15, 0.4); transform: scale(1.05); }
+        .opp-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; color: #eee; }
+        .opp-stats { font-size: 12px; color: #aaa; display: flex; justify-content: space-around; gap: 5px; }
         
-        /* Hrací stůl (Střed) */
-        #middle-area { display: flex; justify-content: center; align-items: center; gap: 50px; background: var(--table-bg); border-radius: 20px; margin: 10px 0; padding: 25px; flex-grow: 1; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 0 50px rgba(0,0,0,0.5); }
-        #active-modifiers { display: flex; gap: 15px; }
-        #table-center { display: flex; gap: 20px; align-items: center; }
-        .modifier-slot { width: 90px; height: 130px; border: 2px dashed #666; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 11px; color: #888; text-align: center; background: rgba(0,0,0,0.2); }
+        /* Stůl */
+        #middle-area { display: flex; justify-content: center; align-items: center; gap: 20px; background: var(--table-bg); border-radius: 15px; margin: 5px 0; padding: 15px; flex-grow: 1; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 0 30px rgba(0,0,0,0.5); flex-wrap: wrap; }
+        #active-modifiers { display: flex; gap: 10px; }
+        #table-center { display: flex; gap: 15px; align-items: center; }
+        .modifier-slot { width: 75px; height: 110px; border: 2px dashed #666; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 10px; color: #888; text-align: center; background: rgba(0,0,0,0.2); }
         
-        #draw-pile { width: 110px; height: 155px; border-radius: 10px; background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px); border: 3px solid #666; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); transition: 0.2s; }
+        #draw-pile { width: 90px; height: 130px; border-radius: 10px; background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px); border: 3px solid #666; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); transition: 0.2s; }
         #draw-pile:hover:not(.disabled) { transform: translateY(-5px) scale(1.02); box-shadow: 4px 8px 15px rgba(0,0,0,0.7); border-color: #aaa; }
-        #draw-pile::after { content: "LÍZNOUT\A(Přeskočí tah)"; white-space: pre; text-align: center; font-weight: bold; letter-spacing: 1px; color: #ddd; font-size: 12px; line-height: 1.4; }
+        #draw-pile::after { content: "LÍZNOUT\A(Přeskok)"; white-space: pre; text-align: center; font-weight: bold; letter-spacing: 1px; color: #ddd; font-size: 11px; line-height: 1.4; }
         
-        /* Karty hráče (Dole) */
-        #player-area-wrapper { display: flex; gap: 30px; align-items: stretch; justify-content: center; width: 100%; padding: 5px 0; }
-        .hand, .mods-container { display: flex; gap: 10px; padding: 15px; overflow-x: auto; background: rgba(0,0,0,0.3); border-radius: 15px; border: 1px solid rgba(255,255,255,0.05); align-items: center; }
-        .mods-container { background: rgba(243, 156, 18, 0.05); border-color: rgba(243, 156, 18, 0.3); min-width: 150px; justify-content: center; }
+        /* Tvoje karty */
+        #player-area-wrapper { display: flex; gap: 10px; align-items: stretch; justify-content: center; width: 100%; padding: 5px 0; flex-wrap: wrap; }
+        .hand, .mods-container { display: flex; gap: 10px; padding: 10px; overflow-x: auto; background: rgba(0,0,0,0.3); border-radius: 15px; border: 1px solid rgba(255,255,255,0.05); align-items: center; -webkit-overflow-scrolling: touch; }
+        .mods-container { background: rgba(243, 156, 18, 0.05); border-color: rgba(243, 156, 18, 0.3); justify-content: center; }
         
-        /* Karta design */
-        .card { width: 110px; height: 155px; border-radius: 10px; background-color: #222; display: flex; flex-direction: column; justify-content: space-between; padding: 8px; box-sizing: border-box; cursor: pointer; box-shadow: 2px 4px 8px rgba(0,0,0,0.6); transition: all 0.2s ease-out; position: relative; flex-shrink: 0; }
-        .card.mod-card { width: 90px; height: 130px; font-size: 0.9em; padding: 6px; }
+        /* Karty */
+        .card { width: 90px; height: 130px; border-radius: 8px; background-color: #222; display: flex; flex-direction: column; justify-content: space-between; padding: 6px; box-sizing: border-box; cursor: pointer; box-shadow: 2px 4px 8px rgba(0,0,0,0.6); transition: all 0.2s ease-out; position: relative; flex-shrink: 0; }
+        .card.mod-card { width: 75px; height: 110px; font-size: 0.8em; padding: 4px; }
         
-        /* Interaktivita karet */
-        .card:hover:not(.disabled) { transform: translateY(-15px); z-index: 10; box-shadow: 0 15px 25px rgba(0,0,0,0.8); }
+        .card:hover:not(.disabled) { transform: translateY(-10px); z-index: 10; box-shadow: 0 10px 20px rgba(0,0,0,0.8); }
         .card.disabled { filter: grayscale(100%) brightness(0.6); opacity: 0.6; cursor: not-allowed; pointer-events: none; }
         #draw-pile.disabled { filter: grayscale(100%) brightness(0.6); opacity: 0.6; cursor: not-allowed; pointer-events: none; }
         
-        .card.intel { border: 3px solid #0071C5; background: linear-gradient(145deg, #0071C5, #001a33); }
-        .card.amd { border: 3px solid #E03C31; background: linear-gradient(145deg, #E03C31, #330805); }
-        .card.nvidia { border: 3px solid #76B900; background: linear-gradient(145deg, #76B900, #1a2600); }
-        .card.modifier { border: 3px solid var(--warning); background: linear-gradient(145deg, #333, #000); color: var(--warning); }
+        .card.intel { border: 2px solid #0071C5; background: linear-gradient(145deg, #0071C5, #001a33); }
+        .card.amd { border: 2px solid #E03C31; background: linear-gradient(145deg, #E03C31, #330805); }
+        .card.nvidia { border: 2px solid #76B900; background: linear-gradient(145deg, #76B900, #1a2600); }
+        .card.modifier { border: 2px solid var(--warning); background: linear-gradient(145deg, #333, #000); color: var(--warning); }
         
-        .card-header { display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; text-shadow: 1px 1px 2px #000; }
-        .card-model { font-size: 13px; font-weight: 900; text-align: center; margin: auto 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); line-height: 1.2; }
-        .card-stats { font-size: 10px; display: flex; flex-direction: column; gap: 3px; }
-        .stat-badge { background: rgba(0,0,0,0.7); padding: 3px; border-radius: 4px; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
-        .stat-score { color: #ffd700; font-weight: bold; background: rgba(0,0,0,0.9); border-color: rgba(255,215,0,0.3); }
+        .card-header { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        .card-model { font-size: 12px; font-weight: 900; text-align: center; margin: auto 0; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); line-height: 1.1; }
+        .card-stats { font-size: 9px; display: flex; flex-direction: column; gap: 2px; }
+        .stat-badge { background: rgba(0,0,0,0.7); padding: 2px; border-radius: 3px; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
+        .stat-score { color: #ffd700; font-weight: bold; background: rgba(0,0,0,0.9); }
         .stat-expire { background: var(--danger); color: white; border: none; font-weight: bold; }
         
-        /* Hlášky a animace */
-        #message-box { padding: 10px 25px; background: var(--success); color: #fff; border-radius: 25px; font-weight: bold; margin-bottom: 10px; font-size: 16px; text-align: center; max-width: 90%; box-shadow: 0 4px 10px rgba(0,0,0,0.4); transition: background 0.3s; }
+        #message-box { padding: 8px 15px; background: var(--success); color: #fff; border-radius: 20px; font-weight: bold; margin-bottom: 5px; font-size: 14px; text-align: center; max-width: 95%; box-shadow: 0 4px 10px rgba(0,0,0,0.4); transition: background 0.3s; }
         @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 50% { transform: translateX(8px); } 75% { transform: translateX(-8px); } }
         .shake { animation: shake 0.3s ease-in-out; }
     </style>
@@ -104,10 +102,10 @@
 
     <div id="screen-menu" class="screen active-screen">
         <div class="menu-box">
-            <h1 style="font-size: 34px; color: var(--warning); margin-bottom: 25px;">Hardware UNO</h1>
+            <h1 style="font-size: 30px; color: var(--warning); margin-bottom: 20px;">Hardware UNO</h1>
             <input type="text" id="player-name" placeholder="Tvoje přezdívka" maxlength="15">
             <button class="btn btn-green" id="btn-create" onclick="createGame()">Vytvořit hru (Host)</button>
-            <div style="margin: 20px 0; display: flex; align-items: center; color: #666;">
+            <div style="margin: 15px 0; display: flex; align-items: center; color: #666;">
                 <div style="flex-grow: 1; height: 1px; background: #444;"></div>
                 <span style="padding: 0 10px; font-size: 12px; text-transform: uppercase;">Nebo</span>
                 <div style="flex-grow: 1; height: 1px; background: #444;"></div>
@@ -118,8 +116,8 @@
                 <input type="text" id="join-code" placeholder="Kód (např. ABCD)" maxlength="4">
             </div>
             
-            <button class="btn" id="btn-join" onclick="joinGame()">Připojit se ke hře</button>
-            <p id="menu-status" style="color: var(--warning); font-size: 14px; margin-top: 15px; min-height: 20px;"></p>
+            <button class="btn" id="btn-join" onclick="joinGame()">Připojit se</button>
+            <p id="menu-status" style="color: var(--warning); font-size: 13px; margin-top: 15px; min-height: 20px;"></p>
         </div>
     </div>
 
@@ -136,14 +134,14 @@
             
             <div id="host-controls" style="display: none;">
                 <select id="game-mode">
-                    <option value="CPU">Herní Mód: Procesory (CPU)</option>
-                    <option value="GPU">Herní Mód: Grafiky (GPU)</option>
+                    <option value="CPU">Herní Mód: CPU</option>
+                    <option value="GPU">Herní Mód: GPU</option>
                 </select>
                 <button class="btn btn-green" onclick="hostStartGame()">Spustit hru</button>
             </div>
             <div id="client-waiting" style="display: none;">
-                <div style="padding: 15px; border-radius: 8px; background: rgba(41, 128, 185, 0.2); border: 1px solid var(--primary); color: #85c1e9;">
-                    ⏳ Čeká se na spuštění hry hostitelem...
+                <div style="padding: 15px; border-radius: 8px; background: rgba(41, 128, 185, 0.2); border: 1px solid var(--primary); color: #85c1e9; font-size: 14px;">
+                    ⏳ Čeká se na spuštění hostitelem...
                 </div>
             </div>
         </div>
@@ -155,19 +153,18 @@
 
         <div id="game-board">
             <div>
-                <div class="section-title">Protivníci</div>
                 <div id="opponents-container"></div>
             </div>
 
             <div id="middle-area">
                 <div id="active-modifiers">
                     <div id="mb-container">
-                        <div class="section-title">Aktivní Deska</div>
-                        <div id="active-mb" class="modifier-slot">Žádná deska</div>
+                        <div class="section-title">Deska</div>
+                        <div id="active-mb" class="modifier-slot">Žádná</div>
                     </div>
                     <div>
-                        <div class="section-title">Aktivní Zdroj</div>
-                        <div id="active-psu" class="modifier-slot">Žádný zdroj</div>
+                        <div class="section-title">Zdroj</div>
+                        <div id="active-psu" class="modifier-slot">Žádný</div>
                     </div>
                 </div>
                 
@@ -184,12 +181,12 @@
             </div>
 
             <div id="player-area-wrapper">
-                <div style="flex-grow: 1; max-width: 75%;">
-                    <div class="section-title">Tvé Hardwarové Karty (<span id="my-card-count">0</span>)</div>
+                <div style="flex-grow: 1; max-width: 100%;">
+                    <div class="section-title">Tvé Karty (<span id="my-card-count">0</span>)</div>
                     <div id="player-hand" class="hand"></div>
                 </div>
                 <div>
-                    <div class="section-title" style="color: var(--warning);">Tvé Ultimátky</div>
+                    <div class="section-title" style="color: var(--warning);">Ultimátky</div>
                     <div id="player-mods" class="mods-container"></div>
                 </div>
             </div>
@@ -197,6 +194,16 @@
     </div>
 
     <script>
+        // --- NASTAVENÍ SÍTĚ (STUN Servery pro lepší připojení přes mobily) ---
+        const peerConfig = {
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
+        };
+
         // --- DATABÁZE KARET ---
         const cpuCards = [
             { type: 'CPU', brand: 'AMD', model: 'Ryzen 5 5600X', score: 22000, socket: 'AM4', tdp: 65, colorClass: 'amd' },
@@ -233,7 +240,6 @@
             { type: 'PSU', brand: 'Mod', model: 'Zdroj 1000W', maxTdp: 500, colorClass: 'modifier' }
         ];
 
-        // --- SÍŤOVÉ A STAVOVÉ PROMĚNNÉ ---
         let peer = null;
         let isHost = false;
         let myId = '';
@@ -295,10 +301,10 @@
             let roomCode = generateRoomCode();
             
             toggleButtons(true);
-            setStatus("Vytvářím místnost (kontaktuji server)...");
+            setStatus("Vytvářím místnost na serveru...");
             
             if (peer) peer.destroy();
-            peer = new Peer(roomCode);
+            peer = new Peer(roomCode, peerConfig); // Využití STUN serverů
             
             peer.on('open', (id) => {
                 isHost = true;
@@ -326,7 +332,7 @@
             peer.on('error', (err) => { 
                 toggleButtons(false);
                 let msg = "Chyba serveru. Zkus to znovu.";
-                if (err.type === 'unavailable-id') msg = "Kód místnosti byl výjimečně zabraný, klikni znovu.";
+                if (err.type === 'unavailable-id') msg = "Kód místnosti byl zabraný, zkus to znovu.";
                 setStatus(msg, true); 
             });
         }
@@ -336,22 +342,21 @@
             let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
             
             if (inputCode.startsWith('HW-')) inputCode = inputCode.substring(3);
-            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej 4 znaky kódu místnosti!", true);
+            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej platná 4 písmena/čísla!", true);
             
             let roomCode = 'HW-' + inputCode;
             
             toggleButtons(true);
-            setStatus("Připojuji se k místnosti...");
+            setStatus("Připojuji se ke hře...");
 
-            // Timeout pojistka proti nekonečnému načítání
             connectionTimeout = setTimeout(() => {
-                setStatus("Připojení vypršelo. Zkontroluj kód nebo zkus vypnout Adblock.", true);
+                setStatus("Připojení vypršelo. Zkontroluj kód místnosti.", true);
                 toggleButtons(false);
                 if (peer) peer.destroy();
             }, 8000);
 
             if (peer) peer.destroy();
-            peer = new Peer(); 
+            peer = new Peer(undefined, peerConfig); // Náhodné ID pro klienta se STUN servery
             
             peer.on('open', (id) => {
                 myId = id;
@@ -376,7 +381,7 @@
                     else if (data.type === 'gameState') {
                         if(!gameState.started) {
                             gameState.started = true;
-                            document.getElementById('ui-mode-title').innerText = data.state.mode + " Edice";
+                            document.getElementById('ui-mode-title').innerText = data.state.mode;
                             document.getElementById('mb-container').style.display = data.state.mode === 'CPU' ? 'block' : 'none';
                             showScreen('screen-game');
                         }
@@ -394,9 +399,7 @@
             peer.on('error', (err) => { 
                 clearTimeout(connectionTimeout);
                 toggleButtons(false);
-                let msg = "Chyba připojení. Možná blokuje P2P firewall.";
-                if (err.type === 'peer-unavailable') msg = "Místnost neexistuje! Zkontroluj kód.";
-                setStatus(msg, true); 
+                setStatus("Místnost neexistuje nebo blokuje síť (STUN).", true); 
             });
         }
 
@@ -459,10 +462,10 @@
             gameState.activePSU = null;
             gameState.turnIndex = 0;
             gameState.started = true;
-            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " je na tahu.";
+            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " hraje jako první.";
             gameState.messageColor = '#27ae60';
             
-            document.getElementById('ui-mode-title').innerText = gameState.mode + " Edice";
+            document.getElementById('ui-mode-title').innerText = gameState.mode;
             document.getElementById('mb-container').style.display = gameState.mode === 'CPU' ? 'block' : 'none';
             showScreen('screen-game');
             broadcastGameState();
@@ -493,7 +496,6 @@
             return stateCopy;
         }
 
-        // --- BEZPEČNÉ LÍZÁNÍ KARET PRO HOSTA ---
         function safeDrawFromDeck(player) {
             if (gameState.deck.length === 0) {
                 if (gameState.discardPile.length <= 1) return false; 
@@ -517,7 +519,7 @@
 
             if (action === 'draw') {
                 let success = safeDrawFromDeck(player);
-                let msg = success ? player.name + " si lízl kartu a přeskočil tah." : player.name + " chtěl lízat, ale nejsou karty!";
+                let msg = success ? player.name + " líže kartu." : player.name + " chtěl lízat, ale nejsou karty!";
                 hostAdvanceTurn(msg);
             } 
             else if (action === 'playHW' || action === 'playMod') {
@@ -530,25 +532,25 @@
                 if (card.type === 'MB') {
                     gameState.activeMB = card;
                     gameState.activeMB.turnsLeft = gameState.players.length * 5; 
-                    msg = player.name + " aktivoval desku (Změna socketu)!";
+                    msg = player.name + " aktivoval desku!";
                 } else if (card.type === 'PSU') {
                     gameState.activePSU = card;
                     gameState.activePSU.turnsLeft = gameState.players.length * 5;
-                    msg = player.name + " aktivoval zdroj (Limit TDP)!";
+                    msg = player.name + " aktivoval zdroj!";
                 } else {
                     gameState.discardPile.push(card);
                     if (card.brand !== topCard.brand && card.score > topCard.score) {
                         msg += " Přebil konkurenci!";
                     } else if (card.brand === topCard.brand && card.score < topCard.score) {
                         let success = safeDrawFromDeck(player);
-                        msg += success ? " BOTTLENECK! Penalizace 1 karta." : " BOTTLENECK! (Ale došly karty)";
+                        msg += success ? " Bottleneck! Líznul navíc." : " Bottleneck! (Ale došly karty)";
                     }
                 }
 
                 // KONTROLA VÝHRY
                 if (player.hand.length === 0) {
                     gameState.winnerDeclared = true;
-                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby za 5s... 🎉";
+                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby... 🎉";
                     gameState.messageColor = '#f39c12';
                     broadcastGameState();
                     
@@ -573,7 +575,7 @@
             gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
             let nextPlayerName = gameState.players[gameState.turnIndex].name;
             
-            gameState.systemMessage = baseMsg + " " + modsMsg + "Na tahu: " + nextPlayerName;
+            gameState.systemMessage = baseMsg + " " + modsMsg + "Hraje: " + nextPlayerName;
             gameState.messageColor = '#2980b9';
             
             broadcastGameState();
@@ -595,7 +597,7 @@
             let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === state.myId);
 
             if(isMyTurn) {
-                msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Na tahu")[0].trim();
+                msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Hraje:")[0].trim();
                 msgBox.style.background = '#27ae60';
             }
 
