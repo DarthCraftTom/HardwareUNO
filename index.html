@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hardware UNO - Maximum Compatibility</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <title>Hardware UNO - Cloud Server Edition</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
         :root {
             --bg-color: #0a0a12;
@@ -102,12 +102,8 @@
 
     <div id="screen-menu" class="screen active-screen">
         <div class="menu-box">
-            <h1 style="font-size: 30px; color: var(--warning); margin-bottom: 10px;">Hardware UNO</h1>
+            <h1 style="font-size: 30px; color: var(--warning); margin-bottom: 20px;">Hardware UNO</h1>
             
-            <div id="https-warning" style="display: none; background: rgba(231, 76, 60, 0.2); border: 1px solid var(--danger); color: #ffcccc; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
-                ⚠️ <b>Pozor:</b> Stránka neběží na zabezpečeném HTTPS. Na mobilech pravděpodobně nepůjde připojit se do hry.
-            </div>
-
             <input type="text" id="player-name" placeholder="Tvoje přezdívka" maxlength="15">
             <button class="btn btn-green" id="btn-create" onclick="createGame()">Vytvořit hru (Host)</button>
             <div style="margin: 15px 0; display: flex; align-items: center; color: #666;">
@@ -199,31 +195,6 @@
     </div>
 
     <script>
-        // KONTROLA HTTPS (Velmi důležité pro mobily)
-        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-            document.getElementById('https-warning').style.display = 'block';
-        }
-
-        // --- SILNÁ SÍŤOVÁ KONFIGURACE (Včetně veřejných TURN a STUN serverů) ---
-        const peerConfig = {
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' },
-                    {
-                        urls: "turn:openrelay.metered.ca:80",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    },
-                    {
-                        urls: "turn:openrelay.metered.ca:443",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    }
-                ]
-            }
-        };
-
         // --- DATABÁZE KARET ---
         const cpuCards = [
             { type: 'CPU', brand: 'AMD', model: 'Ryzen 5 5600X', score: 22000, socket: 'AM4', tdp: 65, colorClass: 'amd' },
@@ -260,13 +231,13 @@
             { type: 'PSU', brand: 'Mod', model: 'Zdroj 1000W', maxTdp: 500, colorClass: 'modifier' }
         ];
 
-        let peer = null;
+        // --- SÍŤOVÉ PROMĚNNÉ PRO MQTT ---
+        const BROKER_URL = 'wss://broker.hivemq.com:8443/mqtt';
+        let mqttClient = null;
         let isHost = false;
-        let myId = '';
+        let myId = Math.random().toString(36).substring(2, 10); // Unikátní ID hráče
         let myName = '';
-        let connections = []; 
-        let hostConnection = null; 
-        let connectionTimeout = null;
+        let roomTopicBase = ''; // Bude: hwuno_cz_v1/ABCD
         
         let gameState = {
             started: false,
@@ -290,13 +261,13 @@
         function setStatus(msg, isError = false) { 
             const statusEl = document.getElementById('menu-status');
             statusEl.innerText = msg; 
-            statusEl.style.color = isError ? 'var(--danger)' : 'var(--warning)';
+            statusEl.style.color = isError ? 'var(--danger)' : 'var(--success)';
         }
         function generateRoomCode() {
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
             let res = '';
             for(let i=0; i<4; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
-            return 'HW-' + res;
+            return res;
         }
         function shuffle(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -315,46 +286,35 @@
             document.getElementById('btn-join').disabled = disabled;
         }
 
-        // --- INICIALIZACE SÍTĚ ---
+        // --- INICIALIZACE MQTT SÍTĚ ---
         function createGame() {
             myName = document.getElementById('player-name').value.trim() || 'Hostitel';
             let roomCode = generateRoomCode();
+            roomTopicBase = `hwuno_cz_v1/${roomCode}`;
             
             toggleButtons(true);
-            setStatus("Vytvářím místnost (kontaktuji server)...");
+            setStatus("Připojuji se ke cloudovému serveru...");
             
-            if (peer) peer.destroy();
-            peer = new Peer(roomCode, peerConfig); 
+            if (mqttClient) mqttClient.end();
+            mqttClient = mqtt.connect(BROKER_URL);
             
-            peer.on('open', (id) => {
+            mqttClient.on('connect', () => {
                 isHost = true;
-                myId = id;
-                document.getElementById('lobby-code').innerText = id;
+                // Host naslouchá akcím od klientů a žádostem o připojení
+                mqttClient.subscribe(`${roomTopicBase}/action`);
+                mqttClient.subscribe(`${roomTopicBase}/join`);
+                
+                document.getElementById('lobby-code').innerText = roomCode;
                 document.getElementById('host-controls').style.display = 'block';
                 
                 gameState.players = [{ id: myId, name: myName, hand: [], mods: [] }];
                 updateLobbyUI();
                 showScreen('screen-lobby');
                 toggleButtons(false);
+                setStatus("Místnost úspěšně vytvořena!");
             });
 
-            peer.on('connection', (conn) => {
-                if (gameState.started || gameState.players.length >= 12) {
-                    conn.send({ type: 'error', msg: 'Hra už začala nebo je plná.' });
-                    setTimeout(() => conn.close(), 1000);
-                    return;
-                }
-                connections.push(conn);
-                conn.on('data', (data) => handleDataFromClient(conn, data));
-                conn.on('close', () => removePlayer(conn.peer));
-            });
-
-            peer.on('error', (err) => { 
-                toggleButtons(false);
-                let msg = "Chyba serveru. Zkus to znovu.";
-                if (err.type === 'unavailable-id') msg = "Kód místnosti byl výjimečně zabraný, klikni znovu.";
-                setStatus(msg, true); 
-            });
+            setupMessageHandler();
         }
 
         function joinGame() {
@@ -362,88 +322,82 @@
             let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
             
             if (inputCode.startsWith('HW-')) inputCode = inputCode.substring(3);
-            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej 4 znaky kódu místnosti!", true);
+            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej platná 4 písmena/čísla!", true);
             
-            let roomCode = 'HW-' + inputCode;
+            roomTopicBase = `hwuno_cz_v1/${inputCode}`;
             
             toggleButtons(true);
-            setStatus("Hledám místnost a překonávám síť...");
+            setStatus("Vyhledávám místnost na cloudu...");
 
-            // Delší timeout kvůli TURN serverům
-            connectionTimeout = setTimeout(() => {
-                setStatus("Spojení selhalo. Ujistěte se, že jste na HTTPS.", true);
-                toggleButtons(false);
-                if (peer) peer.destroy();
-            }, 10000);
-
-            if (peer) peer.destroy();
-            peer = new Peer(undefined, peerConfig); 
+            if (mqttClient) mqttClient.end();
+            mqttClient = mqtt.connect(BROKER_URL);
             
-            peer.on('open', (id) => {
-                myId = id;
-                hostConnection = peer.connect(roomCode, { reliable: true });
+            mqttClient.on('connect', () => {
+                isHost = false;
+                // Klient naslouchá globálnímu stavu hry, který posílá Hostitel
+                mqttClient.subscribe(`${roomTopicBase}/state`);
                 
-                hostConnection.on('open', () => {
-                    clearTimeout(connectionTimeout);
-                    isHost = false;
-                    document.getElementById('lobby-code').innerText = roomCode;
-                    document.getElementById('client-waiting').style.display = 'block';
-                    hostConnection.send({ type: 'join', name: myName });
-                    showScreen('screen-lobby');
-                    toggleButtons(false);
-                });
+                // Oznámíme hostiteli, že jsme tady
+                mqttClient.publish(`${roomTopicBase}/join`, JSON.stringify({ id: myId, name: myName }));
+                
+                document.getElementById('lobby-code').innerText = inputCode;
+                document.getElementById('client-waiting').style.display = 'block';
+                showScreen('screen-lobby');
+                toggleButtons(false);
+                setStatus("Úspěšně připojeno. Čekáme na Hosta...");
+            });
 
-                hostConnection.on('data', (data) => {
-                    if (data.type === 'error') { alert(data.msg); location.reload(); }
-                    else if (data.type === 'lobbyUpdate') {
-                        gameState.players = data.players;
-                        updateLobbyUI();
-                    }
-                    else if (data.type === 'gameState') {
-                        if(!gameState.started) {
-                            gameState.started = true;
-                            document.getElementById('ui-mode-title').innerText = data.state.mode + " Edice";
-                            document.getElementById('mb-container').style.display = data.state.mode === 'CPU' ? 'block' : 'none';
-                            showScreen('screen-game');
+            setupMessageHandler();
+        }
+
+        // Zpracování MQTT zpráv (Jednotné pro hosta i klienta)
+        function setupMessageHandler() {
+            mqttClient.on('message', (topic, message) => {
+                try {
+                    let payload = JSON.parse(message.toString());
+                    
+                    // JSEM HOST: Řeším připojení hráčů a jejich akce
+                    if (isHost) {
+                        if (topic.endsWith('/join')) {
+                            if (gameState.started || gameState.players.length >= 12) return;
+                            if (!gameState.players.find(p => p.id === payload.id)) {
+                                gameState.players.push({ id: payload.id, name: payload.name, hand: [], mods: [] });
+                                broadcastState();
+                            }
+                        } else if (topic.endsWith('/action')) {
+                            hostProcessAction(payload.playerId, payload.action, payload.data);
                         }
-                        renderGameState(data.state);
                     }
-                    else if (data.type === 'returnToLobby') {
-                        gameState.started = false;
-                        showScreen('screen-lobby');
+                    
+                    // JSEM KLIENT (I HOST naslouchá svému lokálnímu renderu): Řeším změnu obrazovky
+                    if (!isHost && topic.endsWith('/state')) {
+                        if (payload.type === 'lobby') {
+                            gameState.players = payload.state.players;
+                            updateLobbyUI();
+                            if (gameState.started) {
+                                gameState.started = false;
+                                showScreen('screen-lobby');
+                            }
+                        } else if (payload.type === 'game') {
+                            if(!gameState.started) {
+                                gameState.started = true;
+                                document.getElementById('ui-mode-title').innerText = payload.state.mode + " Edice";
+                                document.getElementById('mb-container').style.display = payload.state.mode === 'CPU' ? 'block' : 'none';
+                                showScreen('screen-game');
+                            }
+                            renderGameState(payload.state);
+                        }
                     }
-                });
-
-                hostConnection.on('close', () => { alert("Spojení s hostitelem ztraceno."); location.reload(); });
+                } catch(e) { console.error("MQTT Parsing error", e); }
             });
             
-            peer.on('error', (err) => { 
-                clearTimeout(connectionTimeout);
+            mqttClient.on('error', (err) => {
+                setStatus("Chyba spojení se serverem.", true);
                 toggleButtons(false);
-                setStatus("Místnost nenalezena nebo síť P2P blokuje zcela.", true); 
             });
         }
 
         // --- LOBBY LOGIKA ---
-        function handleDataFromClient(conn, data) {
-            if (data.type === 'join') {
-                gameState.players.push({ id: conn.peer, name: data.name, hand: [], mods: [] });
-                broadcastLobby();
-            } else if (data.type === 'action') {
-                hostProcessAction(conn.peer, data.action, data.payload);
-            }
-        }
-        function removePlayer(peerId) {
-            if(gameState.started) return; 
-            gameState.players = gameState.players.filter(p => p.id !== peerId);
-            connections = connections.filter(c => c.peer !== peerId);
-            broadcastLobby();
-        }
-        function broadcastLobby() {
-            let pData = gameState.players.map(p => ({name: p.name}));
-            connections.forEach(c => c.send({ type: 'lobbyUpdate', players: pData }));
-            updateLobbyUI();
-        }
         function updateLobbyUI() {
             const list = document.getElementById('lobby-player-list');
             list.innerHTML = '';
@@ -453,6 +407,24 @@
                 list.appendChild(li);
             });
             document.getElementById('lobby-count').innerText = gameState.players.length;
+        }
+
+        // --- HOST: BROADCAST STAVU ---
+        function broadcastState() {
+            if (!isHost) return;
+            let payload = {
+                type: gameState.started ? 'game' : 'lobby',
+                state: gameState
+            };
+            // Odešleme všem
+            mqttClient.publish(`${roomTopicBase}/state`, JSON.stringify(payload));
+            
+            // Host si UI překreslí lokálně, aby nemusel čekat na serverový odraz
+            if (gameState.started) {
+                renderGameState(gameState);
+            } else {
+                updateLobbyUI();
+            }
         }
 
         // --- HOST: START A NÁVRAT Z HRY ---
@@ -483,38 +455,20 @@
             gameState.activePSU = null;
             gameState.turnIndex = 0;
             gameState.started = true;
-            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " je na tahu.";
+            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " hraje jako první.";
             gameState.messageColor = '#27ae60';
             
             document.getElementById('ui-mode-title').innerText = gameState.mode + " Edice";
             document.getElementById('mb-container').style.display = gameState.mode === 'CPU' ? 'block' : 'none';
             showScreen('screen-game');
-            broadcastGameState();
+            broadcastState();
         }
 
         function hostReturnToLobby() {
             gameState.started = false;
             gameState.winnerDeclared = false;
-            connections.forEach(c => c.send({ type: 'returnToLobby' }));
+            broadcastState();
             showScreen('screen-lobby');
-            updateLobbyUI();
-        }
-
-        function broadcastGameState() {
-            renderGameState(createStateForClient(myId));
-            connections.forEach(c => {
-                c.send({ type: 'gameState', state: createStateForClient(c.peer) });
-            });
-        }
-
-        function createStateForClient(targetId) {
-            let stateCopy = JSON.parse(JSON.stringify(gameState));
-            stateCopy.players = stateCopy.players.map(p => {
-                if (p.id === targetId) return p; 
-                return { id: p.id, name: p.name, cardCount: p.hand.length, modCount: p.mods.length };
-            });
-            stateCopy.myId = targetId; 
-            return stateCopy;
         }
 
         function safeDrawFromDeck(player) {
@@ -540,7 +494,7 @@
 
             if (action === 'draw') {
                 let success = safeDrawFromDeck(player);
-                let msg = success ? player.name + " si lízl kartu a přeskočil tah." : player.name + " chtěl lízat, ale nejsou karty!";
+                let msg = success ? player.name + " si lízl kartu a přeskočil tah." : player.name + " chtěl lízat, ale došly karty!";
                 hostAdvanceTurn(msg);
             } 
             else if (action === 'playHW' || action === 'playMod') {
@@ -564,15 +518,16 @@
                         msg += " Přebil konkurenci!";
                     } else if (card.brand === topCard.brand && card.score < topCard.score) {
                         let success = safeDrawFromDeck(player);
-                        msg += success ? " BOTTLENECK! Penalizace 1 karta." : " BOTTLENECK! (Ale došly karty)";
+                        msg += success ? " Bottleneck! Líznul navíc." : " Bottleneck! (Došly karty)";
                     }
                 }
 
+                // KONTROLA VÝHRY
                 if (player.hand.length === 0) {
                     gameState.winnerDeclared = true;
-                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby za 5s... 🎉";
+                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby... 🎉";
                     gameState.messageColor = '#f39c12';
-                    broadcastGameState();
+                    broadcastState();
                     
                     setTimeout(() => { hostReturnToLobby(); }, 5000);
                     return; 
@@ -595,10 +550,10 @@
             gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
             let nextPlayerName = gameState.players[gameState.turnIndex].name;
             
-            gameState.systemMessage = baseMsg + " " + modsMsg + "Na tahu: " + nextPlayerName;
+            gameState.systemMessage = baseMsg + " " + modsMsg + "Hraje: " + nextPlayerName;
             gameState.messageColor = '#2980b9';
             
-            broadcastGameState();
+            broadcastState();
         }
 
         // --- KLIENT/UI LOGIKA ---
@@ -611,13 +566,13 @@
             msgBox.innerText = state.systemMessage;
             msgBox.style.background = state.messageColor;
 
-            let me = state.players.find(p => p.id === state.myId);
+            let me = state.players.find(p => p.id === myId);
             if (!me) return;
 
-            let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === state.myId);
+            let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === myId);
 
             if(isMyTurn) {
-                msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Na tahu")[0].trim();
+                msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Hraje:")[0].trim();
                 msgBox.style.background = '#27ae60';
             }
 
@@ -625,11 +580,16 @@
             const oppContainer = document.getElementById('opponents-container');
             oppContainer.innerHTML = '';
             state.players.forEach((p, idx) => {
-                if(p.id === state.myId) return; 
+                if(p.id === myId) return; 
                 let div = document.createElement('div');
                 div.className = 'opponent-badge' + (idx === state.turnIndex && !state.winnerDeclared ? ' is-turn' : '');
+                
+                // Získání počtu karet z pole
+                let hLen = p.hand ? p.hand.length : 0;
+                let mLen = p.mods ? p.mods.length : 0;
+                
                 div.innerHTML = `<div class="opp-name">${p.name}</div>
-                                 <div class="opp-stats"><span>🃏 ${p.cardCount}</span> <span>⚡ ${p.modCount}</span></div>`;
+                                 <div class="opp-stats"><span>🃏 ${hLen}</span> <span>⚡ ${mLen}</span></div>`;
                 oppContainer.appendChild(div);
             });
 
@@ -694,10 +654,10 @@
 
         function uiPlayCard(index, isMod) {
             if(!currentClientState || currentClientState.winnerDeclared) return;
-            let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === currentClientState.myId);
+            let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === myId);
             if(!isMyTurn) return;
 
-            let me = currentClientState.players.find(p => p.id === currentClientState.myId);
+            let me = currentClientState.players.find(p => p.id === myId);
             let card = isMod ? me.mods[index] : me.hand[index];
             
             let check = uiCanPlay(card, currentClientState);
@@ -713,17 +673,25 @@
 
         function uiDrawCard() {
             if(!currentClientState || currentClientState.winnerDeclared) return;
-            let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === currentClientState.myId);
+            let isMyTurn = (currentClientState.players[currentClientState.turnIndex].id === myId);
             if(!isMyTurn) return;
             sendAction('draw', null);
         }
 
-        function sendAction(actionType, payload) {
+        function sendAction(actionType, payloadData) {
             document.getElementById('draw-pile').classList.add('disabled');
             document.querySelectorAll('#player-hand .card, #player-mods .card').forEach(c => c.classList.add('disabled'));
             
-            if(isHost) { hostProcessAction(myId, actionType, payload); } 
-            else { hostConnection.send({ type: 'action', action: actionType, payload: payload }); }
+            if(isHost) { 
+                hostProcessAction(myId, actionType, payloadData); 
+            } else { 
+                let payload = {
+                    playerId: myId,
+                    action: actionType,
+                    data: payloadData
+                };
+                mqttClient.publish(`${roomTopicBase}/action`, JSON.stringify(payload)); 
+            }
         }
 
         function createCardHTML(card, extraClass = '', onClick = '', isModUI = false) {
