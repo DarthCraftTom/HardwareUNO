@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hardware UNO - Opravený Multiplayer</title>
+    <title>Hardware UNO - Final Edition</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -31,6 +31,11 @@
         .menu-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 30px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: rgba(0,0,0,0.5); color: white; font-size: 16px; box-sizing: border-box; text-align: center; outline: none; transition: border 0.3s; }
         input:focus { border-color: var(--primary); }
+        
+        .join-code-container { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+        .join-prefix { background: rgba(0,0,0,0.5); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 16px; font-weight: bold; color: var(--warning); }
+        .join-code-container input { margin: 0; flex-grow: 1; text-transform: uppercase; font-weight: bold; letter-spacing: 2px; }
+        
         .btn { background: var(--primary); color: white; border: none; padding: 14px 20px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; width: 100%; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         .btn:hover { background: #3498db; transform: translateY(-2px); }
         .btn-green { background: var(--success); } .btn-green:hover { background: #2ecc71; }
@@ -106,7 +111,12 @@
                 <span style="padding: 0 10px; font-size: 12px; text-transform: uppercase;">Nebo</span>
                 <div style="flex-grow: 1; height: 1px; background: #444;"></div>
             </div>
-            <input type="text" id="join-code" placeholder="Kód místnosti (např. HW-XYZ)" style="text-transform: uppercase;">
+            
+            <div class="join-code-container">
+                <div class="join-prefix">HW-</div>
+                <input type="text" id="join-code" placeholder="Kód (např. ABCD)" maxlength="4">
+            </div>
+            
             <button class="btn" onclick="joinGame()">Připojit se ke hře</button>
             <p id="menu-status" style="color: var(--danger); font-size: 14px; margin-top: 15px; min-height: 20px;"></p>
         </div>
@@ -252,9 +262,9 @@
         function setStatus(msg) { document.getElementById('menu-status').innerText = msg; }
         function generateRoomCode() {
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let res = 'HW-';
+            let res = '';
             for(let i=0; i<4; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
-            return res;
+            return 'HW-' + res;
         }
         function shuffle(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -303,9 +313,17 @@
 
         function joinGame() {
             myName = document.getElementById('player-name').value.trim() || 'Hráč';
-            let roomCode = document.getElementById('join-code').value.trim().toUpperCase();
-            if(!roomCode) return setStatus("Zadej kód místnosti!");
-            setStatus("Připojuji se...");
+            let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
+            
+            // Ošetření: Pokud uživatel do políčka omylem vloží i "HW-" (nebo to tam napíše), ořízneme to
+            if (inputCode.startsWith('HW-')) {
+                inputCode = inputCode.substring(3);
+            }
+            
+            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej platný 4místný kód!");
+            
+            let roomCode = 'HW-' + inputCode;
+            setStatus("Připojuji se k místnosti...");
 
             peer = new Peer(); 
             peer.on('open', (id) => {
@@ -441,13 +459,12 @@
 
         // --- BEZPEČNÉ LÍZÁNÍ KARET PRO HOSTA ---
         function safeDrawFromDeck(player) {
-            // Pokud došly karty v dobíracím balíčku, musíme přemíchat odkládací
             if (gameState.deck.length === 0) {
-                if (gameState.discardPile.length <= 1) return false; // Nejsou už vůbec žádné karty
-                let top = gameState.discardPile.pop(); // Schováme vrchní kartu stolu
-                gameState.deck = gameState.discardPile; // Přesuneme zbytek
-                shuffle(gameState.deck); // Zamícháme
-                gameState.discardPile = [top]; // Vrátíme vrchní kartu na stůl
+                if (gameState.discardPile.length <= 1) return false; 
+                let top = gameState.discardPile.pop(); 
+                gameState.deck = gameState.discardPile; 
+                shuffle(gameState.deck); 
+                gameState.discardPile = [top]; 
             }
             player.hand.push(gameState.deck.pop());
             return true;
@@ -455,7 +472,7 @@
 
         // --- HOST LOGIKA: ZPRACOVÁNÍ TAHŮ ---
         function hostProcessAction(playerId, action, payload) {
-            if (gameState.winnerDeclared) return; // Zablokovat tahy po výhře
+            if (gameState.winnerDeclared) return; 
 
             let pIndex = gameState.players.findIndex(p => p.id === playerId);
             if(pIndex !== gameState.turnIndex) return; 
@@ -499,7 +516,6 @@
                     gameState.messageColor = '#f39c12';
                     broadcastGameState();
                     
-                    // Návrat do lobby po 5 vteřinách
                     setTimeout(() => { hostReturnToLobby(); }, 5000);
                     return; 
                 }
@@ -646,7 +662,6 @@
 
         function sendAction(actionType, payload) {
             document.getElementById('draw-pile').classList.add('disabled');
-            // Zablokujeme hned vizuálně karty, aby nešlo prokliknout dvakrát (než dorazí nový stav od serveru)
             document.querySelectorAll('#player-hand .card, #player-mods .card').forEach(c => c.classList.add('disabled'));
             
             if(isHost) { hostProcessAction(myId, actionType, payload); } 
