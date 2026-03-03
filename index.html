@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hardware UNO - Final Edition</title>
+    <title>Hardware UNO - Stabilní připojení</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -37,8 +37,9 @@
         .join-code-container input { margin: 0; flex-grow: 1; text-transform: uppercase; font-weight: bold; letter-spacing: 2px; }
         
         .btn { background: var(--primary); color: white; border: none; padding: 14px 20px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; width: 100%; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .btn:hover { background: #3498db; transform: translateY(-2px); }
-        .btn-green { background: var(--success); } .btn-green:hover { background: #2ecc71; }
+        .btn:hover:not(:disabled) { background: #3498db; transform: translateY(-2px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-green { background: var(--success); } .btn-green:hover:not(:disabled) { background: #2ecc71; }
         
         .lobby-players { list-style: none; padding: 0; margin: 20px 0; max-height: 200px; overflow-y: auto; text-align: left; background: rgba(0,0,0,0.4); border-radius: 8px; padding: 10px; border: 1px solid #333; }
         .lobby-players li { padding: 8px 10px; border-bottom: 1px solid #333; font-weight: 500; display: flex; align-items: center; }
@@ -105,7 +106,7 @@
         <div class="menu-box">
             <h1 style="font-size: 34px; color: var(--warning); margin-bottom: 25px;">Hardware UNO</h1>
             <input type="text" id="player-name" placeholder="Tvoje přezdívka" maxlength="15">
-            <button class="btn btn-green" onclick="createGame()">Vytvořit hru (Host)</button>
+            <button class="btn btn-green" id="btn-create" onclick="createGame()">Vytvořit hru (Host)</button>
             <div style="margin: 20px 0; display: flex; align-items: center; color: #666;">
                 <div style="flex-grow: 1; height: 1px; background: #444;"></div>
                 <span style="padding: 0 10px; font-size: 12px; text-transform: uppercase;">Nebo</span>
@@ -117,8 +118,8 @@
                 <input type="text" id="join-code" placeholder="Kód (např. ABCD)" maxlength="4">
             </div>
             
-            <button class="btn" onclick="joinGame()">Připojit se ke hře</button>
-            <p id="menu-status" style="color: var(--danger); font-size: 14px; margin-top: 15px; min-height: 20px;"></p>
+            <button class="btn" id="btn-join" onclick="joinGame()">Připojit se ke hře</button>
+            <p id="menu-status" style="color: var(--warning); font-size: 14px; margin-top: 15px; min-height: 20px;"></p>
         </div>
     </div>
 
@@ -239,6 +240,7 @@
         let myName = '';
         let connections = []; 
         let hostConnection = null; 
+        let connectionTimeout = null;
         
         let gameState = {
             started: false,
@@ -259,7 +261,11 @@
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
             document.getElementById(id).classList.add('active-screen');
         }
-        function setStatus(msg) { document.getElementById('menu-status').innerText = msg; }
+        function setStatus(msg, isError = false) { 
+            const statusEl = document.getElementById('menu-status');
+            statusEl.innerText = msg; 
+            statusEl.style.color = isError ? 'var(--danger)' : 'var(--warning)';
+        }
         function generateRoomCode() {
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
             let res = '';
@@ -278,23 +284,32 @@
             void msgBox.offsetWidth; 
             msgBox.classList.add('shake');
         }
+        function toggleButtons(disabled) {
+            document.getElementById('btn-create').disabled = disabled;
+            document.getElementById('btn-join').disabled = disabled;
+        }
 
         // --- INICIALIZACE SÍTĚ ---
         function createGame() {
             myName = document.getElementById('player-name').value.trim() || 'Hostitel';
             let roomCode = generateRoomCode();
-            setStatus("Vytvářím místnost...");
             
+            toggleButtons(true);
+            setStatus("Vytvářím místnost (kontaktuji server)...");
+            
+            if (peer) peer.destroy();
             peer = new Peer(roomCode);
+            
             peer.on('open', (id) => {
                 isHost = true;
                 myId = id;
                 document.getElementById('lobby-code').innerText = id;
                 document.getElementById('host-controls').style.display = 'block';
                 
-                gameState.players.push({ id: myId, name: myName, hand: [], mods: [] });
+                gameState.players = [{ id: myId, name: myName, hand: [], mods: [] }];
                 updateLobbyUI();
                 showScreen('screen-lobby');
+                toggleButtons(false);
             });
 
             peer.on('connection', (conn) => {
@@ -308,34 +323,48 @@
                 conn.on('close', () => removePlayer(conn.peer));
             });
 
-            peer.on('error', (err) => { setStatus("Chyba spojení: " + err.type); });
+            peer.on('error', (err) => { 
+                toggleButtons(false);
+                let msg = "Chyba serveru. Zkus to znovu.";
+                if (err.type === 'unavailable-id') msg = "Kód místnosti byl výjimečně zabraný, klikni znovu.";
+                setStatus(msg, true); 
+            });
         }
 
         function joinGame() {
             myName = document.getElementById('player-name').value.trim() || 'Hráč';
             let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
             
-            // Ošetření: Pokud uživatel do políčka omylem vloží i "HW-" (nebo to tam napíše), ořízneme to
-            if (inputCode.startsWith('HW-')) {
-                inputCode = inputCode.substring(3);
-            }
-            
-            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej platný 4místný kód!");
+            if (inputCode.startsWith('HW-')) inputCode = inputCode.substring(3);
+            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej 4 znaky kódu místnosti!", true);
             
             let roomCode = 'HW-' + inputCode;
+            
+            toggleButtons(true);
             setStatus("Připojuji se k místnosti...");
 
+            // Timeout pojistka proti nekonečnému načítání
+            connectionTimeout = setTimeout(() => {
+                setStatus("Připojení vypršelo. Zkontroluj kód nebo zkus vypnout Adblock.", true);
+                toggleButtons(false);
+                if (peer) peer.destroy();
+            }, 8000);
+
+            if (peer) peer.destroy();
             peer = new Peer(); 
+            
             peer.on('open', (id) => {
                 myId = id;
-                hostConnection = peer.connect(roomCode);
+                hostConnection = peer.connect(roomCode, { reliable: true });
                 
                 hostConnection.on('open', () => {
+                    clearTimeout(connectionTimeout);
                     isHost = false;
                     document.getElementById('lobby-code').innerText = roomCode;
                     document.getElementById('client-waiting').style.display = 'block';
                     hostConnection.send({ type: 'join', name: myName });
                     showScreen('screen-lobby');
+                    toggleButtons(false);
                 });
 
                 hostConnection.on('data', (data) => {
@@ -361,7 +390,14 @@
 
                 hostConnection.on('close', () => { alert("Spojení s hostitelem ztraceno."); location.reload(); });
             });
-            peer.on('error', (err) => { setStatus("Nelze se připojit k místnosti. Zkontroluj kód."); });
+            
+            peer.on('error', (err) => { 
+                clearTimeout(connectionTimeout);
+                toggleButtons(false);
+                let msg = "Chyba připojení. Možná blokuje P2P firewall.";
+                if (err.type === 'peer-unavailable') msg = "Místnost neexistuje! Zkontroluj kód.";
+                setStatus(msg, true); 
+            });
         }
 
         // --- LOBBY LOGIKA ---
