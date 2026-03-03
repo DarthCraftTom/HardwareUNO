@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hardware UNO - Cloud Server Edition</title>
+    <title>Hardware UNO - Cloud Server Edition (Opraveno)</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
         :root {
@@ -117,7 +117,7 @@
                 <input type="text" id="join-code" placeholder="Kód (např. ABCD)" maxlength="4">
             </div>
             
-            <button class="btn" id="btn-join" onclick="joinGame()">Připojit se</button>
+            <button class="btn" id="btn-join" onclick="joinGame()">Připojit se ke hře</button>
             <p id="menu-status" style="color: var(--warning); font-size: 13px; margin-top: 15px; min-height: 20px;"></p>
         </div>
     </div>
@@ -232,7 +232,7 @@
         ];
 
         // --- SÍŤOVÉ PROMĚNNÉ PRO MQTT ---
-        const BROKER_URL = 'wss://broker.hivemq.com:8443/mqtt';
+        const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
         let mqttClient = null;
         let isHost = false;
         let myId = Math.random().toString(36).substring(2, 10); // Unikátní ID hráče
@@ -293,13 +293,32 @@
             roomTopicBase = `hwuno_cz_v1/${roomCode}`;
             
             toggleButtons(true);
-            setStatus("Připojuji se ke cloudovému serveru...");
+            setStatus("Vytvářím místnost na cloudovém serveru...");
             
-            if (mqttClient) mqttClient.end();
-            mqttClient = mqtt.connect(BROKER_URL);
+            if (mqttClient) mqttClient.end(true);
+
+            // Připojení na EMQX server
+            const mqttOptions = {
+                clientId: 'hwuno_host_' + myId,
+                clean: true,
+                connectTimeout: 5000,
+                reconnectPeriod: 0 // Bez opakování po failu
+            };
+
+            mqttClient = mqtt.connect(BROKER_URL, mqttOptions);
+            
+            let connectTimeout = setTimeout(() => {
+                if (!mqttClient.connected) {
+                    setStatus("Cloudový server neodpovídá. Zkuste to za chvíli.", true);
+                    toggleButtons(false);
+                    mqttClient.end();
+                }
+            }, 5000);
             
             mqttClient.on('connect', () => {
+                clearTimeout(connectTimeout);
                 isHost = true;
+                
                 // Host naslouchá akcím od klientů a žádostem o připojení
                 mqttClient.subscribe(`${roomTopicBase}/action`);
                 mqttClient.subscribe(`${roomTopicBase}/join`);
@@ -327,13 +346,31 @@
             roomTopicBase = `hwuno_cz_v1/${inputCode}`;
             
             toggleButtons(true);
-            setStatus("Vyhledávám místnost na cloudu...");
+            setStatus("Vyhledávám místnost...");
 
-            if (mqttClient) mqttClient.end();
-            mqttClient = mqtt.connect(BROKER_URL);
+            if (mqttClient) mqttClient.end(true);
+
+            const mqttOptions = {
+                clientId: 'hwuno_client_' + myId,
+                clean: true,
+                connectTimeout: 5000,
+                reconnectPeriod: 0 
+            };
+
+            mqttClient = mqtt.connect(BROKER_URL, mqttOptions);
+            
+            let connectTimeout = setTimeout(() => {
+                if (!mqttClient.connected) {
+                    setStatus("Nepodařilo se připojit k serveru.", true);
+                    toggleButtons(false);
+                    mqttClient.end();
+                }
+            }, 5000);
             
             mqttClient.on('connect', () => {
+                clearTimeout(connectTimeout);
                 isHost = false;
+                
                 // Klient naslouchá globálnímu stavu hry, který posílá Hostitel
                 mqttClient.subscribe(`${roomTopicBase}/state`);
                 
@@ -344,19 +381,19 @@
                 document.getElementById('client-waiting').style.display = 'block';
                 showScreen('screen-lobby');
                 toggleButtons(false);
-                setStatus("Úspěšně připojeno. Čekáme na Hosta...");
+                setStatus("Připojeno. Čekáme na Hosta...");
             });
 
             setupMessageHandler();
         }
 
-        // Zpracování MQTT zpráv (Jednotné pro hosta i klienta)
+        // Zpracování příchozích zpráv
         function setupMessageHandler() {
             mqttClient.on('message', (topic, message) => {
                 try {
                     let payload = JSON.parse(message.toString());
                     
-                    // JSEM HOST: Řeším připojení hráčů a jejich akce
+                    // JSEM HOST
                     if (isHost) {
                         if (topic.endsWith('/join')) {
                             if (gameState.started || gameState.players.length >= 12) return;
@@ -369,7 +406,7 @@
                         }
                     }
                     
-                    // JSEM KLIENT (I HOST naslouchá svému lokálnímu renderu): Řeším změnu obrazovky
+                    // JSEM KLIENT (I Host zachytává vlastní stav pro synchronizaci)
                     if (!isHost && topic.endsWith('/state')) {
                         if (payload.type === 'lobby') {
                             gameState.players = payload.state.players;
@@ -388,12 +425,11 @@
                             renderGameState(payload.state);
                         }
                     }
-                } catch(e) { console.error("MQTT Parsing error", e); }
+                } catch(e) { console.error("Chyba při čtení dat:", e); }
             });
             
             mqttClient.on('error', (err) => {
-                setStatus("Chyba spojení se serverem.", true);
-                toggleButtons(false);
+                console.error('MQTT chyba:', err);
             });
         }
 
@@ -412,14 +448,16 @@
         // --- HOST: BROADCAST STAVU ---
         function broadcastState() {
             if (!isHost) return;
+            
+            // Odeslání všem (Příprava kopie, aby neviděli cizí karty by šla udělat lépe, 
+            // ale přes MQTT posíláme celou hru, a klient si UI renderuje jen pro své ID).
             let payload = {
                 type: gameState.started ? 'game' : 'lobby',
                 state: gameState
             };
-            // Odešleme všem
+            
             mqttClient.publish(`${roomTopicBase}/state`, JSON.stringify(payload));
             
-            // Host si UI překreslí lokálně, aby nemusel čekat na serverový odraz
             if (gameState.started) {
                 renderGameState(gameState);
             } else {
@@ -584,7 +622,6 @@
                 let div = document.createElement('div');
                 div.className = 'opponent-badge' + (idx === state.turnIndex && !state.winnerDeclared ? ' is-turn' : '');
                 
-                // Získání počtu karet z pole
                 let hLen = p.hand ? p.hand.length : 0;
                 let mLen = p.mods ? p.mods.length : 0;
                 
