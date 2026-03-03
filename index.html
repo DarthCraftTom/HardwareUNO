@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hardware UNO - Web Hosted Edition</title>
+    <title>Hardware UNO - Maximum Compatibility</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -102,7 +102,12 @@
 
     <div id="screen-menu" class="screen active-screen">
         <div class="menu-box">
-            <h1 style="font-size: 30px; color: var(--warning); margin-bottom: 20px;">Hardware UNO</h1>
+            <h1 style="font-size: 30px; color: var(--warning); margin-bottom: 10px;">Hardware UNO</h1>
+            
+            <div id="https-warning" style="display: none; background: rgba(231, 76, 60, 0.2); border: 1px solid var(--danger); color: #ffcccc; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+                ⚠️ <b>Pozor:</b> Stránka neběží na zabezpečeném HTTPS. Na mobilech pravděpodobně nepůjde připojit se do hry.
+            </div>
+
             <input type="text" id="player-name" placeholder="Tvoje přezdívka" maxlength="15">
             <button class="btn btn-green" id="btn-create" onclick="createGame()">Vytvořit hru (Host)</button>
             <div style="margin: 15px 0; display: flex; align-items: center; color: #666;">
@@ -194,12 +199,27 @@
     </div>
 
     <script>
-        // --- NASTAVENÍ SÍTĚ (STUN Servery pro lepší připojení přes mobily) ---
+        // KONTROLA HTTPS (Velmi důležité pro mobily)
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            document.getElementById('https-warning').style.display = 'block';
+        }
+
+        // --- SILNÁ SÍŤOVÁ KONFIGURACE (Včetně veřejných TURN a STUN serverů) ---
         const peerConfig = {
             config: {
                 'iceServers': [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                    { urls: 'stun:global.stun.twilio.com:3478' },
+                    {
+                        urls: "turn:openrelay.metered.ca:80",
+                        username: "openrelayproject",
+                        credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject",
+                        credential: "openrelayproject"
+                    }
                 ]
             }
         };
@@ -301,10 +321,10 @@
             let roomCode = generateRoomCode();
             
             toggleButtons(true);
-            setStatus("Vytvářím místnost na serveru...");
+            setStatus("Vytvářím místnost (kontaktuji server)...");
             
             if (peer) peer.destroy();
-            peer = new Peer(roomCode, peerConfig); // Využití STUN serverů
+            peer = new Peer(roomCode, peerConfig); 
             
             peer.on('open', (id) => {
                 isHost = true;
@@ -332,7 +352,7 @@
             peer.on('error', (err) => { 
                 toggleButtons(false);
                 let msg = "Chyba serveru. Zkus to znovu.";
-                if (err.type === 'unavailable-id') msg = "Kód místnosti byl zabraný, zkus to znovu.";
+                if (err.type === 'unavailable-id') msg = "Kód místnosti byl výjimečně zabraný, klikni znovu.";
                 setStatus(msg, true); 
             });
         }
@@ -342,21 +362,22 @@
             let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
             
             if (inputCode.startsWith('HW-')) inputCode = inputCode.substring(3);
-            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej platná 4 písmena/čísla!", true);
+            if(!inputCode || inputCode.length !== 4) return setStatus("Zadej 4 znaky kódu místnosti!", true);
             
             let roomCode = 'HW-' + inputCode;
             
             toggleButtons(true);
-            setStatus("Připojuji se ke hře...");
+            setStatus("Hledám místnost a překonávám síť...");
 
+            // Delší timeout kvůli TURN serverům
             connectionTimeout = setTimeout(() => {
-                setStatus("Připojení vypršelo. Zkontroluj kód místnosti.", true);
+                setStatus("Spojení selhalo. Ujistěte se, že jste na HTTPS.", true);
                 toggleButtons(false);
                 if (peer) peer.destroy();
-            }, 8000);
+            }, 10000);
 
             if (peer) peer.destroy();
-            peer = new Peer(undefined, peerConfig); // Náhodné ID pro klienta se STUN servery
+            peer = new Peer(undefined, peerConfig); 
             
             peer.on('open', (id) => {
                 myId = id;
@@ -381,7 +402,7 @@
                     else if (data.type === 'gameState') {
                         if(!gameState.started) {
                             gameState.started = true;
-                            document.getElementById('ui-mode-title').innerText = data.state.mode;
+                            document.getElementById('ui-mode-title').innerText = data.state.mode + " Edice";
                             document.getElementById('mb-container').style.display = data.state.mode === 'CPU' ? 'block' : 'none';
                             showScreen('screen-game');
                         }
@@ -399,7 +420,7 @@
             peer.on('error', (err) => { 
                 clearTimeout(connectionTimeout);
                 toggleButtons(false);
-                setStatus("Místnost neexistuje nebo blokuje síť (STUN).", true); 
+                setStatus("Místnost nenalezena nebo síť P2P blokuje zcela.", true); 
             });
         }
 
@@ -462,10 +483,10 @@
             gameState.activePSU = null;
             gameState.turnIndex = 0;
             gameState.started = true;
-            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " hraje jako první.";
+            gameState.systemMessage = "Hra začíná! " + gameState.players[0].name + " je na tahu.";
             gameState.messageColor = '#27ae60';
             
-            document.getElementById('ui-mode-title').innerText = gameState.mode;
+            document.getElementById('ui-mode-title').innerText = gameState.mode + " Edice";
             document.getElementById('mb-container').style.display = gameState.mode === 'CPU' ? 'block' : 'none';
             showScreen('screen-game');
             broadcastGameState();
@@ -519,7 +540,7 @@
 
             if (action === 'draw') {
                 let success = safeDrawFromDeck(player);
-                let msg = success ? player.name + " líže kartu." : player.name + " chtěl lízat, ale nejsou karty!";
+                let msg = success ? player.name + " si lízl kartu a přeskočil tah." : player.name + " chtěl lízat, ale nejsou karty!";
                 hostAdvanceTurn(msg);
             } 
             else if (action === 'playHW' || action === 'playMod') {
@@ -532,25 +553,24 @@
                 if (card.type === 'MB') {
                     gameState.activeMB = card;
                     gameState.activeMB.turnsLeft = gameState.players.length * 5; 
-                    msg = player.name + " aktivoval desku!";
+                    msg = player.name + " aktivoval desku (Změna socketu)!";
                 } else if (card.type === 'PSU') {
                     gameState.activePSU = card;
                     gameState.activePSU.turnsLeft = gameState.players.length * 5;
-                    msg = player.name + " aktivoval zdroj!";
+                    msg = player.name + " aktivoval zdroj (Limit TDP)!";
                 } else {
                     gameState.discardPile.push(card);
                     if (card.brand !== topCard.brand && card.score > topCard.score) {
                         msg += " Přebil konkurenci!";
                     } else if (card.brand === topCard.brand && card.score < topCard.score) {
                         let success = safeDrawFromDeck(player);
-                        msg += success ? " Bottleneck! Líznul navíc." : " Bottleneck! (Ale došly karty)";
+                        msg += success ? " BOTTLENECK! Penalizace 1 karta." : " BOTTLENECK! (Ale došly karty)";
                     }
                 }
 
-                // KONTROLA VÝHRY
                 if (player.hand.length === 0) {
                     gameState.winnerDeclared = true;
-                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby... 🎉";
+                    gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby za 5s... 🎉";
                     gameState.messageColor = '#f39c12';
                     broadcastGameState();
                     
@@ -575,7 +595,7 @@
             gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
             let nextPlayerName = gameState.players[gameState.turnIndex].name;
             
-            gameState.systemMessage = baseMsg + " " + modsMsg + "Hraje: " + nextPlayerName;
+            gameState.systemMessage = baseMsg + " " + modsMsg + "Na tahu: " + nextPlayerName;
             gameState.messageColor = '#2980b9';
             
             broadcastGameState();
@@ -597,7 +617,7 @@
             let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === state.myId);
 
             if(isMyTurn) {
-                msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Hraje:")[0].trim();
+                msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Na tahu")[0].trim();
                 msgBox.style.background = '#27ae60';
             }
 
