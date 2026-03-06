@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hardware UNO - Cloud Server Edition (Finální)</title>
+    <title>Hardware UNO - Cloud Server Edition</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
         :root {
@@ -28,7 +28,7 @@
         .active-screen { display: flex; }
         
         /* Menu & Lobby UI */
-        .menu-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .menu-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-height: 95vh; overflow-y: auto; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: rgba(0,0,0,0.5); color: white; font-size: 16px; box-sizing: border-box; text-align: center; outline: none; transition: border 0.3s; }
         input:focus { border-color: var(--primary); }
         
@@ -40,6 +40,7 @@
         .btn:hover:not(:disabled) { background: #3498db; transform: translateY(-2px); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-green { background: var(--success); } .btn-green:hover:not(:disabled) { background: #2ecc71; }
+        .btn-purple { background: #8e44ad; font-size: 15px; padding: 10px; } .btn-purple:hover:not(:disabled) { background: #9b59b6; }
         
         .lobby-players { list-style: none; padding: 0; margin: 20px 0; max-height: 200px; overflow-y: auto; text-align: left; background: rgba(0,0,0,0.4); border-radius: 8px; padding: 10px; border: 1px solid #333; }
         .lobby-players li { padding: 8px 10px; border-bottom: 1px solid #333; font-weight: 500; display: flex; align-items: center; }
@@ -47,27 +48,35 @@
         .lobby-players li:last-child { border-bottom: none; }
         
         /* --- HERNÍ PLOCHA --- */
-        #game-board { flex-grow: 1; padding: 5px; justify-content: space-between; width: 100%; max-width: 1200px; box-sizing: border-box; }
+        #game-board { flex-grow: 1; padding: 5px; justify-content: space-between; width: 100%; max-width: 1200px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
         
         .section-title { font-size: 11px; font-weight: bold; opacity: 0.7; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; color: #fff; text-align: center; }
         
         /* Oponenti */
-        #opponents-container { display: flex; gap: 10px; overflow-x: auto; width: 100%; padding: 5px; justify-content: center; }
-        .opponent-badge { background: rgba(0,0,0,0.5); border: 2px solid transparent; border-radius: 10px; padding: 8px 15px; text-align: center; min-width: 80px; transition: 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        #opponents-container { display: flex; gap: 10px; overflow-x: auto; width: 100%; padding: 5px; justify-content: center; -webkit-overflow-scrolling: touch; }
+        .opponent-badge { background: rgba(0,0,0,0.5); border: 2px solid transparent; border-radius: 10px; padding: 8px 15px; text-align: center; min-width: 80px; transition: 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.3); flex-shrink: 0; }
         .opponent-badge.is-turn { border-color: var(--warning); background: rgba(241, 196, 15, 0.15); box-shadow: 0 0 10px rgba(241, 196, 15, 0.4); transform: scale(1.05); }
-        .opp-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; color: #eee; }
+        .opp-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; color: #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
         .opp-stats { font-size: 12px; color: #aaa; display: flex; justify-content: space-around; gap: 5px; }
         
         /* Stůl */
         #middle-area { display: flex; justify-content: center; align-items: center; gap: 20px; background: var(--table-bg); border-radius: 15px; margin: 5px 0; padding: 15px; flex-grow: 1; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 0 30px rgba(0,0,0,0.5); flex-wrap: wrap; }
-        #active-modifiers { display: flex; gap: 10px; }
-        #table-center { display: flex; gap: 15px; align-items: center; }
+        #active-modifiers { display: flex; gap: 10px; justify-content: center; }
+        #table-center { display: flex; gap: 15px; align-items: center; justify-content: center; }
         .modifier-slot { width: 75px; height: 110px; border: 2px dashed #666; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 10px; color: #888; text-align: center; background: rgba(0,0,0,0.2); }
         
-        #draw-pile { width: 90px; height: 130px; border-radius: 10px; background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px); border: 3px solid #666; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); transition: 0.2s; }
+        #draw-pile { width: 90px; height: 130px; border-radius: 10px; background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px); border: 3px solid #666; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); transition: 0.2s; position: relative; }
         #draw-pile:hover:not(.disabled) { transform: translateY(-5px) scale(1.02); box-shadow: 4px 8px 15px rgba(0,0,0,0.7); border-color: #aaa; }
         #draw-pile::after { content: "LÍZNOUT\A(Přeskok)"; white-space: pre; text-align: center; font-weight: bold; letter-spacing: 1px; color: #ddd; font-size: 11px; line-height: 1.4; }
         
+        /* Highlight animace pro lízací balíček */
+        @keyframes pulse-highlight {
+            0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7); border-color: var(--success); }
+            70% { box-shadow: 0 0 0 15px rgba(39, 174, 96, 0); border-color: var(--success); }
+            100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); border-color: #666; }
+        }
+        .highlight-draw { animation: pulse-highlight 1.5s infinite !important; }
+
         /* Tvoje karty */
         #player-area-wrapper { display: flex; gap: 10px; align-items: stretch; justify-content: center; width: 100%; padding: 5px 0; flex-wrap: wrap; }
         .hand, .mods-container { display: flex; gap: 10px; padding: 10px; overflow-x: auto; background: rgba(0,0,0,0.3); border-radius: 15px; border: 1px solid rgba(255,255,255,0.05); align-items: center; -webkit-overflow-scrolling: touch; }
@@ -93,9 +102,35 @@
         .stat-score { color: #ffd700; font-weight: bold; background: rgba(0,0,0,0.9); }
         .stat-expire { background: var(--danger); color: white; border: none; font-weight: bold; }
         
-        #message-box { padding: 8px 15px; background: var(--success); color: #fff; border-radius: 20px; font-weight: bold; margin-bottom: 5px; font-size: 14px; text-align: center; max-width: 95%; box-shadow: 0 4px 10px rgba(0,0,0,0.4); transition: background 0.3s; }
+        #message-box { padding: 8px 15px; background: var(--success); color: #fff; border-radius: 20px; font-weight: bold; margin-bottom: 5px; font-size: 14px; text-align: center; max-width: 95%; box-shadow: 0 4px 10px rgba(0,0,0,0.4); transition: background 0.3s; flex-shrink: 0; }
         @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 50% { transform: translateX(8px); } 75% { transform: translateX(-8px); } }
         .shake { animation: shake 0.3s ease-in-out; }
+
+        /* --- MOBILNÍ OPTIMALIZACE --- */
+        @media (max-width: 600px) {
+            h1 { font-size: 18px; margin: 5px 0; }
+            #message-box { font-size: 12px; padding: 6px 12px; }
+            
+            /* Zmenšení karet */
+            .card { width: 75px; height: 108px; padding: 4px; }
+            .card.mod-card { width: 65px; height: 95px; }
+            .card-header { font-size: 8px; }
+            .card-model { font-size: 10px; }
+            .card-stats { font-size: 8px; }
+            .stat-badge { padding: 1px; }
+            
+            /* Úprava stolu na menším rozlišení */
+            #middle-area { flex-direction: column; gap: 15px; padding: 10px; }
+            .modifier-slot { width: 65px; height: 95px; font-size: 9px; }
+            #draw-pile { width: 75px; height: 108px; }
+            #draw-pile::after { font-size: 9px; }
+            
+            /* Úprava oponentů a hráče */
+            .hand, .mods-container { gap: 6px; padding: 8px; }
+            .opponent-badge { padding: 5px 10px; min-width: 70px; }
+            .opp-name { font-size: 11px; max-width: 70px; }
+            .opp-stats { font-size: 10px; }
+        }
     </style>
 </head>
 <body>
@@ -134,12 +169,18 @@
             <ul class="lobby-players" id="lobby-player-list"></ul>
             
             <div id="host-controls" style="display: none;">
-                <select id="game-mode">
+                <button class="btn btn-purple" id="btn-show-qr" onclick="toggleQR()">📱 Zobrazit QR kód pro pozvání</button>
+                <div id="qr-container" style="display: none; background: white; padding: 10px; border-radius: 8px; margin: 15px auto; width: max-content;">
+                    <img id="qr-image" src="" alt="QR kód" style="width: 150px; height: 150px; display: block;">
+                </div>
+
+                <select id="game-mode" style="margin-top: 15px;">
                     <option value="CPU">Herní Mód: CPU</option>
                     <option value="GPU">Herní Mód: GPU</option>
                 </select>
                 <button class="btn btn-green" onclick="hostStartGame()">Spustit hru</button>
             </div>
+            
             <div id="client-waiting" style="display: none;">
                 <div style="padding: 15px; border-radius: 8px; background: rgba(41, 128, 185, 0.2); border: 1px solid var(--primary); color: #85c1e9; font-size: 14px;">
                     ⏳ Čeká se na spuštění hostitelem...
@@ -182,7 +223,7 @@
             </div>
 
             <div id="player-area-wrapper">
-                <div style="flex-grow: 1; max-width: 100%;">
+                <div style="flex-grow: 1; max-width: 100%; overflow: hidden;">
                     <div class="section-title">Tvé Karty (<span id="my-card-count">0</span>)</div>
                     <div id="player-hand" class="hand"></div>
                 </div>
@@ -195,6 +236,15 @@
     </div>
 
     <script>
+        // --- Čtení URL Parametrů po načtení ---
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            if (code) {
+                document.getElementById('join-code').value = code.toUpperCase();
+            }
+        });
+
         // --- DATABÁZE KARET ---
         const cpuCards = [
             { type: 'CPU', brand: 'AMD', model: 'Ryzen 5 5600X', score: 22000, socket: 'AM4', tdp: 65, colorClass: 'amd' },
@@ -286,7 +336,21 @@
             document.getElementById('btn-join').disabled = disabled;
         }
 
-        // Automatické odeslání informace o opuštění při zavření záložky
+        // Zobrazení / Skrytí QR kódu
+        function toggleQR() {
+            const qrCont = document.getElementById('qr-container');
+            if(qrCont.style.display === 'none') {
+                const baseUrl = window.location.href.split('?')[0];
+                const code = document.getElementById('lobby-code').innerText;
+                const joinUrl = `${baseUrl}?code=${code}`;
+                
+                document.getElementById('qr-image').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(joinUrl)}`;
+                qrCont.style.display = 'block';
+            } else {
+                qrCont.style.display = 'none';
+            }
+        }
+
         window.addEventListener('beforeunload', () => {
             if (mqttClient && mqttClient.connected) {
                 mqttClient.publish(`${roomTopicBase}/leave`, JSON.stringify({ id: myId, isHost: isHost }), { qos: 0 });
@@ -294,7 +358,6 @@
             }
         });
 
-        // Návrat do menu při kritické chybě
         function resetToMenu(msg) {
             if (mqttClient) mqttClient.end(true);
             gameState.started = false;
@@ -321,7 +384,6 @@
             
             if (mqttClient) mqttClient.end(true);
 
-            // Nastavení s Last Will and Testament (pokud hostiteli spadne net, pošle se tohle)
             const mqttOptions = {
                 clientId: 'hwuno_host_' + myId,
                 clean: true,
@@ -354,6 +416,7 @@
                 
                 document.getElementById('lobby-code').innerText = roomCode;
                 document.getElementById('host-controls').style.display = 'block';
+                document.getElementById('qr-container').style.display = 'none'; // reset
                 
                 gameState.players = [{ id: myId, name: myName, hand: [], mods: [] }];
                 updateLobbyUI();
@@ -429,7 +492,6 @@
                 try {
                     let payload = JSON.parse(message.toString());
                     
-                    // ODPOJENÍ HRÁČE NEBO HOSTA
                     if (topic.endsWith('/leave')) {
                         if (payload.isHost) {
                             if (!isHost) {
@@ -437,7 +499,6 @@
                                 resetToMenu("Lobby zrušeno (Hostitel odešel).");
                             }
                         } else if (isHost) {
-                            // Host zpracovává odpojení klienta
                             let pIndex = gameState.players.findIndex(p => p.id === payload.id);
                             if (pIndex > -1) {
                                 let disconnectedName = gameState.players[pIndex].name;
@@ -445,7 +506,6 @@
                                 
                                 if (gameState.started) {
                                     if (gameState.players.length < 2) {
-                                        // Ve hře zbyde méně než 2 hráči -> Konec hry
                                         gameState.started = false;
                                         gameState.winnerDeclared = false;
                                         gameState.systemMessage = `Hráč ${disconnectedName} odešel. Není s kým hrát! Konec hry.`;
@@ -453,7 +513,6 @@
                                         broadcastState();
                                         setTimeout(() => { hostReturnToLobby(); }, 4000);
                                     } else {
-                                        // Hra pokračuje, upravíme turnIndex
                                         if (pIndex < gameState.turnIndex) {
                                             gameState.turnIndex--;
                                         } else if (pIndex === gameState.turnIndex) {
@@ -464,15 +523,13 @@
                                         broadcastState();
                                     }
                                 } else {
-                                    // V lobby se jen vymaže ze seznamu
                                     broadcastState();
                                 }
                             }
                         }
-                        return; // Opouštíme logiku, zbytek nás nezajímá
+                        return; 
                     }
 
-                    // JSEM HOST
                     if (isHost) {
                         if (topic.endsWith('/join')) {
                             if (gameState.started || gameState.players.length >= 12) return;
@@ -485,7 +542,6 @@
                         }
                     }
                     
-                    // JSEM KLIENT 
                     if (!isHost && topic.endsWith('/state')) {
                         if (payload.type === 'lobby') {
                             gameState.players = payload.state.players;
@@ -507,12 +563,9 @@
                 } catch(e) { console.error("Chyba při čtení dat:", e); }
             });
             
-            mqttClient.on('error', (err) => {
-                console.error('MQTT chyba:', err);
-            });
+            mqttClient.on('error', (err) => { console.error('MQTT chyba:', err); });
         }
 
-        // --- LOBBY LOGIKA ---
         function updateLobbyUI() {
             const list = document.getElementById('lobby-player-list');
             list.innerHTML = '';
@@ -524,25 +577,14 @@
             document.getElementById('lobby-count').innerText = gameState.players.length;
         }
 
-        // --- HOST: BROADCAST STAVU ---
         function broadcastState() {
             if (!isHost) return;
-            
-            let payload = {
-                type: gameState.started ? 'game' : 'lobby',
-                state: gameState
-            };
-            
+            let payload = { type: gameState.started ? 'game' : 'lobby', state: gameState };
             mqttClient.publish(`${roomTopicBase}/state`, JSON.stringify(payload));
-            
-            if (gameState.started) {
-                renderGameState(gameState);
-            } else {
-                updateLobbyUI();
-            }
+            if (gameState.started) { renderGameState(gameState); } 
+            else { updateLobbyUI(); }
         }
 
-        // --- HOST: START A NÁVRAT Z HRY ---
         function hostStartGame() {
             if(gameState.players.length < 2) return alert("Musíte být alespoň 2 hráči!");
             gameState.mode = document.getElementById('game-mode').value;
@@ -598,10 +640,8 @@
             return true;
         }
 
-        // --- HOST LOGIKA: ZPRACOVÁNÍ TAHŮ ---
         function hostProcessAction(playerId, action, payload) {
             if (gameState.winnerDeclared) return; 
-
             let pIndex = gameState.players.findIndex(p => p.id === playerId);
             if(pIndex !== gameState.turnIndex) return; 
 
@@ -670,7 +710,6 @@
             broadcastState();
         }
 
-        // --- KLIENT/UI LOGIKA ---
         let currentClientState = null;
 
         function renderGameState(state) {
@@ -727,16 +766,14 @@
                 document.getElementById('active-psu').style.border = '2px dashed #666';
             }
 
-            const drawPile = document.getElementById('draw-pile');
-            if(isMyTurn) drawPile.classList.remove('disabled');
-            else drawPile.classList.add('disabled');
-
-            // Tvoje Karty
+            // Tvoje Karty a validace
             document.getElementById('my-card-count').innerText = me.hand.length;
             
+            let hasPlayableCard = false;
             let handHtml = '';
             me.hand.forEach((card, idx) => {
                 let check = uiCanPlay(card, state);
+                if (check.valid) hasPlayableCard = true;
                 let extraClass = (!isMyTurn || !check.valid) ? 'disabled' : '';
                 handHtml += createCardHTML(card, extraClass, `uiPlayCard(${idx}, false)`);
             });
@@ -745,10 +782,26 @@
             let modsHtml = '';
             me.mods.forEach((card, idx) => {
                 let check = uiCanPlay(card, state);
+                if (check.valid) hasPlayableCard = true;
                 let extraClass = (!isMyTurn || !check.valid) ? 'disabled' : '';
                 modsHtml += createCardHTML(card, extraClass, `uiPlayCard(${idx}, true)`, true);
             });
             document.getElementById('player-mods').innerHTML = modsHtml;
+
+            // Logika lízacího balíčku
+            const drawPile = document.getElementById('draw-pile');
+            if(isMyTurn) {
+                drawPile.classList.remove('disabled');
+                // Pokud hráč nemá co hrát, zvýrazni balíček
+                if (!hasPlayableCard && !state.winnerDeclared) {
+                    drawPile.classList.add('highlight-draw');
+                } else {
+                    drawPile.classList.remove('highlight-draw');
+                }
+            } else {
+                drawPile.classList.add('disabled');
+                drawPile.classList.remove('highlight-draw');
+            }
         }
 
         function uiCanPlay(card, state) {
@@ -793,6 +846,7 @@
 
         function sendAction(actionType, payloadData) {
             document.getElementById('draw-pile').classList.add('disabled');
+            document.getElementById('draw-pile').classList.remove('highlight-draw');
             document.querySelectorAll('#player-hand .card, #player-mods .card').forEach(c => c.classList.add('disabled'));
             
             if(isHost) { 
