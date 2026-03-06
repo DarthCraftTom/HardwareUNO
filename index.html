@@ -375,7 +375,6 @@
             isMusicMuted = document.getElementById('mute-music').checked;
             isSfxMuted = document.getElementById('mute-sfx').checked;
             
-            // Plynulá změna hlasitosti hudby
             if (bgMusicGain && audioCtx) {
                 const targetVol = isMusicMuted ? 0 : masterMusicVol * 0.5;
                 bgMusicGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.1); 
@@ -387,7 +386,6 @@
             panel.style.display = panel.style.display === 'none' || panel.style.display === '' ? 'block' : 'none';
         }
 
-        // Generátor zvukových efektů (Synth)
         function playSfx(type) {
             if (!audioCtx || isSfxMuted || masterSfxVol === 0) return;
             const osc = audioCtx.createOscillator();
@@ -406,8 +404,8 @@
                 osc.start(now); osc.stop(now + 0.5);
             } else if (type === 'myTurn') {
                 osc.type = 'triangle';
-                osc.frequency.setValueAtTime(523.25, now); // C5
-                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                osc.frequency.setValueAtTime(523.25, now); 
+                osc.frequency.setValueAtTime(659.25, now + 0.1); 
                 gain.gain.setValueAtTime(masterSfxVol * 0.8, now);
                 gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
                 osc.start(now); osc.stop(now + 0.3);
@@ -433,12 +431,12 @@
                 gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
                 osc.start(now); osc.stop(now + 0.6);
             } else if (type === 'win') {
-                osc.type = 'square';
+                osc.type = 'triangle'; // Opraveno na mnohem měkčí zvuk
                 osc.frequency.setValueAtTime(523.25, now);
                 osc.frequency.setValueAtTime(659.25, now + 0.2);
                 osc.frequency.setValueAtTime(783.99, now + 0.4);
                 osc.frequency.setValueAtTime(1046.50, now + 0.6);
-                gain.gain.setValueAtTime(masterSfxVol, now);
+                gain.gain.setValueAtTime(masterSfxVol * 0.4, now); // Snížená hlasitost
                 gain.gain.linearRampToValueAtTime(0.01, now + 1.5);
                 osc.start(now); osc.stop(now + 1.5);
             } else if (type === 'nextTurn') {
@@ -450,7 +448,6 @@
             }
         }
 
-        // Procedurálně generovaný ambientní podkres (Nekonečná smyčka)
         function startBgMusic() {
             if (!audioCtx || bgMusicGain) return;
             
@@ -458,7 +455,6 @@
             bgMusicGain.gain.value = isMusicMuted ? 0 : masterMusicVol * 0.5;
             bgMusicGain.connect(audioCtx.destination);
 
-            // Pentatonická stupnice A moll (hluboké tóny)
             const frequencies = [110.00, 130.81, 146.83, 164.81, 196.00, 220.00, 261.63];
 
             function playGenerativeNote() {
@@ -475,9 +471,8 @@
                 gain.connect(bgMusicGain);
                 
                 let now = audioCtx.currentTime;
-                let duration = 4 + Math.random() * 4; // 4 až 8 sekund
+                let duration = 4 + Math.random() * 4; 
                 
-                // Fade in a fade out
                 gain.gain.setValueAtTime(0, now);
                 gain.gain.linearRampToValueAtTime(0.2, now + duration / 2);
                 gain.gain.linearRampToValueAtTime(0, now + duration);
@@ -487,18 +482,15 @@
                 
                 activeGenerativeNodes.push({osc, gain});
                 
-                // Vyčištění z paměti po dohrání
                 setTimeout(() => {
                     let idx = activeGenerativeNodes.findIndex(n => n.osc === osc);
                     if (idx > -1) activeGenerativeNodes.splice(idx, 1);
                 }, duration * 1000 + 100);
 
-                // Načasování dalšího tónu (překrývání vrstev)
                 let nextTime = (1 + Math.random() * 3) * 1000;
                 generativeTimeouts.push(setTimeout(playGenerativeNote, nextTime));
             }
 
-            // Spuštění 3 nezávislých vrstev najednou pro plnější zvuk
             playGenerativeNote();
             setTimeout(playGenerativeNote, 2000);
             setTimeout(playGenerativeNote, 4000);
@@ -519,11 +511,9 @@
             }
         }
 
-        // Interakce pro odblokování audia
         document.body.addEventListener('click', initAudio, { once: true });
 
-
-        // --- Čtení URL Parametrů po načtení ---
+        // --- Čtení URL Parametrů ---
         window.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
@@ -737,40 +727,6 @@
             }
         }
 
-        // --- ANIMACE ROZDÁVÁNÍ ---
-        function triggerDealAnimation() {
-            return new Promise((resolve) => {
-                const overlay = document.getElementById('deal-animation-overlay');
-                overlay.style.display = 'flex';
-                
-                for(let i=0; i<15; i++) {
-                    setTimeout(() => {
-                        let card = document.createElement('div');
-                        card.className = 'flying-card';
-                        
-                        let tx = (Math.random() * 400 - 200) + 'px';
-                        let ty = (Math.random() * 400 - 200) + 'px';
-                        let rot = (Math.random() * 360) + 'deg';
-                        
-                        card.style.setProperty('--tx', tx);
-                        card.style.setProperty('--ty', ty);
-                        card.style.setProperty('--rot', rot);
-                        
-                        overlay.appendChild(card);
-                        playSfx('draw'); 
-                        
-                        setTimeout(() => card.remove(), 800);
-                    }, i * 100);
-                }
-                
-                setTimeout(() => {
-                    overlay.style.display = 'none';
-                    resolve();
-                }, 2500);
-            });
-        }
-
-
         window.addEventListener('beforeunload', () => {
             if (mqttClient && mqttClient.connected) {
                 mqttClient.publish(`${roomTopicBase}/leave`, JSON.stringify({ id: myId, isHost: isHost }), { qos: 0 });
@@ -832,6 +788,7 @@
             mqttClient.on('connect', () => {
                 clearTimeout(connectTimeout);
                 
+                // Přihlásíme se k odběru žádostí
                 mqttClient.subscribe(`${roomTopicBase}/action`);
                 mqttClient.subscribe(`${roomTopicBase}/join_request`); 
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
@@ -986,19 +943,21 @@
                         }
                     }
 
+                    // Všichni přijímají State
                     if (topic.endsWith('/state')) {
                         if (payload.sfxEvent && payload.sfxEvent !== 'none') {
                             playSfx(payload.sfxEvent);
                         }
 
                         if (payload.type === 'lobby') {
+                            // PLNÁ SYNCHRONIZACE PŘI NÁVRATU DO LOBBY
                             gameState.players = payload.state.players;
+                            gameState.started = false;
+                            gameState.winnerDeclared = false;
                             updateLobbyUI();
-                            if (gameState.started) {
-                                gameState.started = false;
-                                stopBgMusic();
-                                showScreen('screen-lobby');
-                            }
+                            stopBgMusic();
+                            showScreen('screen-lobby');
+                            
                         } else if (payload.type === 'game') {
                             if(!gameState.started) {
                                 gameState.started = true;
@@ -1087,6 +1046,7 @@
         function hostReturnToLobby() {
             gameState.started = false;
             gameState.winnerDeclared = false;
+            gameState.systemMessage = "Čeká se na spuštění hostitelem...";
             stopBgMusic();
             broadcastState('none');
             showScreen('screen-lobby');
