@@ -136,14 +136,14 @@
         /* --- NASTAVENÍ ZVUKU --- */
         #audio-settings-btn {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
+            top: 15px;
+            right: 15px;
             background: rgba(0,0,0,0.7);
             border: 1px solid var(--primary);
             border-radius: 50%;
-            width: 45px;
-            height: 45px;
-            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
             cursor: pointer;
             z-index: 1000;
             display: flex;
@@ -157,20 +157,23 @@
         #audio-panel {
             display: none;
             position: fixed;
-            bottom: 75px;
-            right: 20px;
+            top: 65px;
+            right: 15px;
             background: rgba(0,0,0,0.9);
             border: 1px solid var(--primary);
             border-radius: 10px;
             padding: 15px;
             z-index: 1000;
             box-shadow: 0 4px 15px rgba(0,0,0,0.7);
-            width: 200px;
+            width: 220px;
+            color: #eee;
+            font-size: 13px;
         }
-        .audio-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .audio-row { display: flex; flex-direction: column; margin-bottom: 15px; }
         .audio-row:last-child { margin-bottom: 0; }
-        .audio-row label { font-size: 14px; margin-right: 10px;}
-        input[type="range"] { flex-grow: 1; }
+        .audio-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; }
+        .audio-controls input[type="range"] { flex-grow: 1; margin-right: 10px; }
+        .mute-label { font-size: 11px; color: #aaa; cursor: pointer; display: flex; align-items: center; gap: 4px; }
 
         /* --- ANIMACE ROZDÁVÁNÍ KARET --- */
         #deal-animation-overlay {
@@ -222,14 +225,22 @@
 
     <div id="audio-settings-btn" onclick="toggleAudioPanel()">⚙️</div>
     <div id="audio-panel">
-        <div style="font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;">Nastavení zvuku</div>
+        <div style="font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; text-align: center;">Nastavení zvuku</div>
+        
         <div class="audio-row">
-            <label for="vol-music">🎵 Hudba:</label>
-            <input type="range" id="vol-music" min="0" max="1" step="0.1" value="0.3" onchange="updateVolumes()">
+            <div>🎵 Hudba v pozadí:</div>
+            <div class="audio-controls">
+                <input type="range" id="vol-music" min="0" max="1" step="0.1" value="0.3" onchange="updateVolumes()">
+                <label class="mute-label"><input type="checkbox" id="mute-music" onchange="updateVolumes()"> Vypnout</label>
+            </div>
         </div>
+        
         <div class="audio-row">
-            <label for="vol-sfx">🔊 Efekty:</label>
-            <input type="range" id="vol-sfx" min="0" max="1" step="0.1" value="0.7" onchange="updateVolumes()">
+            <div>🔊 Zvukové efekty:</div>
+            <div class="audio-controls">
+                <input type="range" id="vol-sfx" min="0" max="1" step="0.1" value="0.7" onchange="updateVolumes()">
+                <label class="mute-label"><input type="checkbox" id="mute-sfx" onchange="updateVolumes()"> Vypnout</label>
+            </div>
         </div>
     </div>
 
@@ -340,10 +351,13 @@
     <script>
         // --- AUDIO SYSTÉM ---
         let audioCtx = null;
-        let bgMusicOscillator = null;
+        let droneOscillators = [];
         let bgMusicGain = null;
+        
         let masterMusicVol = 0.3;
         let masterSfxVol = 0.7;
+        let isMusicMuted = false;
+        let isSfxMuted = false;
 
         function initAudio() {
             if (!audioCtx) {
@@ -357,8 +371,13 @@
         function updateVolumes() {
             masterMusicVol = parseFloat(document.getElementById('vol-music').value);
             masterSfxVol = parseFloat(document.getElementById('vol-sfx').value);
-            if (bgMusicGain) {
-                bgMusicGain.gain.setValueAtTime(masterMusicVol * 0.1, audioCtx.currentTime); // Ztlumeno, aby to nervalo uši
+            isMusicMuted = document.getElementById('mute-music').checked;
+            isSfxMuted = document.getElementById('mute-sfx').checked;
+            
+            // Plynulá změna hlasitosti hudby
+            if (bgMusicGain && audioCtx) {
+                const targetVol = isMusicMuted ? 0 : masterMusicVol * 0.1;
+                bgMusicGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.1); 
             }
         }
 
@@ -369,7 +388,7 @@
 
         // Generátor zvukových efektů (Synth)
         function playSfx(type) {
-            if (!audioCtx || masterSfxVol === 0) return;
+            if (!audioCtx || isSfxMuted || masterSfxVol === 0) return;
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
@@ -430,28 +449,36 @@
             }
         }
 
-        // Jednoduchá podkresová "hudba" (drone/pad)
+        // Lepší hudba (Akord A moll s jemným rozladěním - Ambient Drone)
         function startBgMusic() {
-            if (!audioCtx || bgMusicOscillator) return;
-            bgMusicOscillator = audioCtx.createOscillator();
+            if (!audioCtx || droneOscillators.length > 0) return;
             bgMusicGain = audioCtx.createGain();
-            
-            bgMusicOscillator.type = 'sine';
-            bgMusicOscillator.frequency.value = 110; // A2
-            
-            bgMusicGain.gain.value = masterMusicVol * 0.1; // Velmi potichu
-            
-            bgMusicOscillator.connect(bgMusicGain);
+            bgMusicGain.gain.value = isMusicMuted ? 0 : masterMusicVol * 0.1;
             bgMusicGain.connect(audioCtx.destination);
             
-            bgMusicOscillator.start();
+            // Frakvence tvořící hluboký vesmírný ambient pad
+            const frequencies = [110, 130.81, 164.81]; 
+            
+            frequencies.forEach(freq => {
+                let osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = freq;
+                osc.detune.value = (Math.random() - 0.5) * 15; // přidá plnost zvuku
+                
+                osc.connect(bgMusicGain);
+                osc.start();
+                droneOscillators.push(osc);
+            });
         }
 
         function stopBgMusic() {
-            if (bgMusicOscillator) {
-                bgMusicOscillator.stop();
-                bgMusicOscillator.disconnect();
-                bgMusicOscillator = null;
+            droneOscillators.forEach(osc => {
+                osc.stop();
+                osc.disconnect();
+            });
+            droneOscillators = [];
+            if (bgMusicGain) {
+                bgMusicGain.disconnect();
                 bgMusicGain = null;
             }
         }
@@ -694,7 +721,7 @@
                         card.style.setProperty('--rot', rot);
                         
                         overlay.appendChild(card);
-                        playSfx('draw'); // zvuk rozdávání
+                        playSfx('draw'); 
                         
                         setTimeout(() => card.remove(), 800);
                     }, i * 100);
@@ -771,7 +798,7 @@
                 
                 // Přihlásíme se k odběru žádostí
                 mqttClient.subscribe(`${roomTopicBase}/action`);
-                mqttClient.subscribe(`${roomTopicBase}/join_request`); // Místo rovnou /join posílá klient request
+                mqttClient.subscribe(`${roomTopicBase}/join_request`); 
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
                 
                 document.getElementById('lobby-code').innerText = roomCode;
@@ -834,7 +861,7 @@
                 
                 mqttClient.subscribe(`${roomTopicBase}/state`);
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
-                mqttClient.subscribe(`${roomTopicBase}/join_response_${myId}`); // Poslouchá na svou vlastní odpověď
+                mqttClient.subscribe(`${roomTopicBase}/join_response_${myId}`);
                 
                 // Pošleme žádost o připojení hostiteli
                 mqttClient.publish(`${roomTopicBase}/join_request`, JSON.stringify({ id: myId, name: myName }));
@@ -889,18 +916,15 @@
                     }
 
                     if (isHost) {
-                        // KONTROLA UNIKÁTNÍHO JMÉNA
                         if (topic.endsWith('/join_request')) {
                             if (gameState.started || gameState.players.length >= 20) {
                                 mqttClient.publish(`${roomTopicBase}/join_response_${payload.id}`, JSON.stringify({ success: false, reason: "Hra už začala nebo je plná (max 20)." }));
                                 return;
                             }
-                            // Kontrola jména (case-insensitive)
                             let nameExists = gameState.players.some(p => p.name.toLowerCase() === payload.name.toLowerCase());
                             if (nameExists) {
                                 mqttClient.publish(`${roomTopicBase}/join_response_${payload.id}`, JSON.stringify({ success: false, reason: "Toto jméno už v lobby je! Zvol jiné." }));
                             } else {
-                                // Jméno je volné
                                 gameState.players.push({ id: payload.id, name: payload.name, hand: [], mods: [] });
                                 mqttClient.publish(`${roomTopicBase}/join_response_${payload.id}`, JSON.stringify({ success: true }));
                                 broadcastState();
@@ -911,7 +935,6 @@
                     }
                     
                     if (!isHost) {
-                        // Zpracování odpovědi na připojení
                         if (topic.endsWith(`/join_response_${myId}`)) {
                             if (payload.success) {
                                 let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
@@ -931,8 +954,6 @@
 
                     // Všichni přijímají State
                     if (topic.endsWith('/state')) {
-                        
-                        // Detekce zvukových událostí při změně stavu (odchyceno v payloadu pro jistotu)
                         if (payload.sfxEvent && payload.sfxEvent !== 'none') {
                             playSfx(payload.sfxEvent);
                         }
@@ -981,7 +1002,7 @@
             let payload = { type: gameState.started ? 'game' : 'lobby', state: gameState, sfxEvent: sfxEvent };
             mqttClient.publish(`${roomTopicBase}/state`, JSON.stringify(payload));
             if (gameState.started) { 
-                if(sfxEvent !== 'none') playSfx(sfxEvent); // Host si musí přehrát sám, nenaslouchá zprávě
+                if(sfxEvent !== 'none') playSfx(sfxEvent); 
                 renderGameState(gameState); 
             } 
             else { updateLobbyUI(); }
@@ -1025,7 +1046,7 @@
                 playSfx('start');
                 await triggerDealAnimation();
                 startBgMusic();
-                broadcastState('none'); // Rozešle stav ostatním (ti si animaci spustí jakmile dostanou state game a started=false)
+                broadcastState('none'); 
             }
             hostInitAnim();
         }
@@ -1138,13 +1159,9 @@
 
             let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === myId);
 
-            // Zvuk pokud jsi na tahu a předtím jsi nebyl
             if (isMyTurn && !myOldTurnState) {
                 playSfx('myTurn');
-            }
-            // Zvuk pro ostatní, že hraje někdo další
-            else if (!isMyTurn && myOldTurnState && !state.winnerDeclared) {
-                // Přehraje se jen při přechodu Z mého tahu na cizí tah (volitelně by to šlo udělat při jakékoliv změně)
+            } else if (!isMyTurn && myOldTurnState && !state.winnerDeclared) {
                 playSfx('nextTurn');
             }
             myOldTurnState = isMyTurn;
