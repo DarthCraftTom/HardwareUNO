@@ -232,6 +232,7 @@
         ];
 
         // --- SÍŤOVÉ PROMĚNNÉ PRO MQTT ---
+        // Tento broker funguje celosvětově na webu
         const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
         let mqttClient = null;
         let isHost = false;
@@ -297,12 +298,13 @@
             
             if (mqttClient) mqttClient.end(true);
 
-            // Připojení na EMQX server
+            // Připojení na EMQX server (S přidanou stabilitou pro multiplayer)
             const mqttOptions = {
                 clientId: 'hwuno_host_' + myId,
                 clean: true,
                 connectTimeout: 5000,
-                reconnectPeriod: 0 // Bez opakování po failu
+                reconnectPeriod: 2000, // Zajišťuje obnovení při ztrátě signálu
+                keepalive: 30
             };
 
             mqttClient = mqtt.connect(BROKER_URL, mqttOptions);
@@ -311,7 +313,6 @@
                 if (!mqttClient.connected) {
                     setStatus("Cloudový server neodpovídá. Zkuste to za chvíli.", true);
                     toggleButtons(false);
-                    mqttClient.end();
                 }
             }, 5000);
             
@@ -354,7 +355,8 @@
                 clientId: 'hwuno_client_' + myId,
                 clean: true,
                 connectTimeout: 5000,
-                reconnectPeriod: 0 
+                reconnectPeriod: 2000, // Aby hráči nevypadávali
+                keepalive: 30
             };
 
             mqttClient = mqtt.connect(BROKER_URL, mqttOptions);
@@ -363,7 +365,6 @@
                 if (!mqttClient.connected) {
                     setStatus("Nepodařilo se připojit k serveru.", true);
                     toggleButtons(false);
-                    mqttClient.end();
                 }
             }, 5000);
             
@@ -449,8 +450,6 @@
         function broadcastState() {
             if (!isHost) return;
             
-            // Odeslání všem (Příprava kopie, aby neviděli cizí karty by šla udělat lépe, 
-            // ale přes MQTT posíláme celou hru, a klient si UI renderuje jen pro své ID).
             let payload = {
                 type: gameState.started ? 'game' : 'lobby',
                 state: gameState
