@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hardware UNO - Cloud Server Edition (Opraveno)</title>
+    <title>Hardware UNO - Cloud Server Edition (Finální)</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
         :root {
@@ -104,7 +104,7 @@
         <div class="menu-box">
             <h1 style="font-size: 30px; color: var(--warning); margin-bottom: 20px;">Hardware UNO</h1>
             
-            <input type="text" id="player-name" placeholder="Tvoje přezdívka" maxlength="15">
+            <input type="text" id="player-name" placeholder="Zadej svou přezdívku" maxlength="15">
             <button class="btn btn-green" id="btn-create" onclick="createGame()">Vytvořit hru (Host)</button>
             <div style="margin: 15px 0; display: flex; align-items: center; color: #666;">
                 <div style="flex-grow: 1; height: 1px; background: #444;"></div>
@@ -232,13 +232,12 @@
         ];
 
         // --- SÍŤOVÉ PROMĚNNÉ PRO MQTT ---
-        // Tento broker funguje celosvětově na webu
         const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
         let mqttClient = null;
         let isHost = false;
-        let myId = Math.random().toString(36).substring(2, 10); // Unikátní ID hráče
+        let myId = Math.random().toString(36).substring(2, 10); 
         let myName = '';
-        let roomTopicBase = ''; // Bude: hwuno_cz_v1/ABCD
+        let roomTopicBase = ''; 
         
         let gameState = {
             started: false,
@@ -287,42 +286,71 @@
             document.getElementById('btn-join').disabled = disabled;
         }
 
+        // Automatické odeslání informace o opuštění při zavření záložky
+        window.addEventListener('beforeunload', () => {
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.publish(`${roomTopicBase}/leave`, JSON.stringify({ id: myId, isHost: isHost }), { qos: 0 });
+                mqttClient.end(true);
+            }
+        });
+
+        // Návrat do menu při kritické chybě
+        function resetToMenu(msg) {
+            if (mqttClient) mqttClient.end(true);
+            gameState.started = false;
+            gameState.players = [];
+            showScreen('screen-menu');
+            setStatus(msg, true);
+            toggleButtons(false);
+            document.getElementById('host-controls').style.display = 'none';
+            document.getElementById('client-waiting').style.display = 'none';
+        }
+
         // --- INICIALIZACE MQTT SÍTĚ ---
         function createGame() {
-            myName = document.getElementById('player-name').value.trim() || 'Hostitel';
+            let nameInput = document.getElementById('player-name').value.trim();
+            if (!nameInput) return setStatus("Nejdřív zadej svou přezdívku!", true);
+            myName = nameInput;
+            
             let roomCode = generateRoomCode();
             roomTopicBase = `hwuno_cz_v1/${roomCode}`;
+            isHost = true;
             
             toggleButtons(true);
-            setStatus("Vytvářím místnost na cloudovém serveru...");
+            setStatus("Vytvářím místnost...");
             
             if (mqttClient) mqttClient.end(true);
 
-            // Připojení na EMQX server (S přidanou stabilitou pro multiplayer)
+            // Nastavení s Last Will and Testament (pokud hostiteli spadne net, pošle se tohle)
             const mqttOptions = {
                 clientId: 'hwuno_host_' + myId,
                 clean: true,
                 connectTimeout: 5000,
-                reconnectPeriod: 2000, // Zajišťuje obnovení při ztrátě signálu
-                keepalive: 30
+                reconnectPeriod: 2000,
+                keepalive: 30,
+                will: {
+                    topic: `${roomTopicBase}/leave`,
+                    payload: JSON.stringify({ id: myId, isHost: true }),
+                    qos: 1,
+                    retain: false
+                }
             };
 
             mqttClient = mqtt.connect(BROKER_URL, mqttOptions);
             
             let connectTimeout = setTimeout(() => {
                 if (!mqttClient.connected) {
-                    setStatus("Cloudový server neodpovídá. Zkuste to za chvíli.", true);
+                    setStatus("Server neodpovídá. Zkuste to znovu.", true);
                     toggleButtons(false);
                 }
             }, 5000);
             
             mqttClient.on('connect', () => {
                 clearTimeout(connectTimeout);
-                isHost = true;
                 
-                // Host naslouchá akcím od klientů a žádostem o připojení
                 mqttClient.subscribe(`${roomTopicBase}/action`);
                 mqttClient.subscribe(`${roomTopicBase}/join`);
+                mqttClient.subscribe(`${roomTopicBase}/leave`);
                 
                 document.getElementById('lobby-code').innerText = roomCode;
                 document.getElementById('host-controls').style.display = 'block';
@@ -338,13 +366,16 @@
         }
 
         function joinGame() {
-            myName = document.getElementById('player-name').value.trim() || 'Hráč';
-            let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
+            let nameInput = document.getElementById('player-name').value.trim();
+            if (!nameInput) return setStatus("Nejdřív zadej svou přezdívku!", true);
+            myName = nameInput;
             
+            let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
             if (inputCode.startsWith('HW-')) inputCode = inputCode.substring(3);
             if(!inputCode || inputCode.length !== 4) return setStatus("Zadej platná 4 písmena/čísla!", true);
             
             roomTopicBase = `hwuno_cz_v1/${inputCode}`;
+            isHost = false;
             
             toggleButtons(true);
             setStatus("Vyhledávám místnost...");
@@ -355,8 +386,14 @@
                 clientId: 'hwuno_client_' + myId,
                 clean: true,
                 connectTimeout: 5000,
-                reconnectPeriod: 2000, // Aby hráči nevypadávali
-                keepalive: 30
+                reconnectPeriod: 2000,
+                keepalive: 30,
+                will: {
+                    topic: `${roomTopicBase}/leave`,
+                    payload: JSON.stringify({ id: myId, isHost: false }),
+                    qos: 1,
+                    retain: false
+                }
             };
 
             mqttClient = mqtt.connect(BROKER_URL, mqttOptions);
@@ -370,12 +407,10 @@
             
             mqttClient.on('connect', () => {
                 clearTimeout(connectTimeout);
-                isHost = false;
                 
-                // Klient naslouchá globálnímu stavu hry, který posílá Hostitel
                 mqttClient.subscribe(`${roomTopicBase}/state`);
+                mqttClient.subscribe(`${roomTopicBase}/leave`);
                 
-                // Oznámíme hostiteli, že jsme tady
                 mqttClient.publish(`${roomTopicBase}/join`, JSON.stringify({ id: myId, name: myName }));
                 
                 document.getElementById('lobby-code').innerText = inputCode;
@@ -394,6 +429,49 @@
                 try {
                     let payload = JSON.parse(message.toString());
                     
+                    // ODPOJENÍ HRÁČE NEBO HOSTA
+                    if (topic.endsWith('/leave')) {
+                        if (payload.isHost) {
+                            if (!isHost) {
+                                alert("Hostitel se odpojil. Místnost byla zrušena.");
+                                resetToMenu("Lobby zrušeno (Hostitel odešel).");
+                            }
+                        } else if (isHost) {
+                            // Host zpracovává odpojení klienta
+                            let pIndex = gameState.players.findIndex(p => p.id === payload.id);
+                            if (pIndex > -1) {
+                                let disconnectedName = gameState.players[pIndex].name;
+                                gameState.players.splice(pIndex, 1);
+                                
+                                if (gameState.started) {
+                                    if (gameState.players.length < 2) {
+                                        // Ve hře zbyde méně než 2 hráči -> Konec hry
+                                        gameState.started = false;
+                                        gameState.winnerDeclared = false;
+                                        gameState.systemMessage = `Hráč ${disconnectedName} odešel. Není s kým hrát! Konec hry.`;
+                                        gameState.messageColor = '#e74c3c';
+                                        broadcastState();
+                                        setTimeout(() => { hostReturnToLobby(); }, 4000);
+                                    } else {
+                                        // Hra pokračuje, upravíme turnIndex
+                                        if (pIndex < gameState.turnIndex) {
+                                            gameState.turnIndex--;
+                                        } else if (pIndex === gameState.turnIndex) {
+                                            gameState.turnIndex = gameState.turnIndex % gameState.players.length;
+                                        }
+                                        gameState.systemMessage = `Hráč ${disconnectedName} se odpojil.`;
+                                        gameState.messageColor = '#e74c3c';
+                                        broadcastState();
+                                    }
+                                } else {
+                                    // V lobby se jen vymaže ze seznamu
+                                    broadcastState();
+                                }
+                            }
+                        }
+                        return; // Opouštíme logiku, zbytek nás nezajímá
+                    }
+
                     // JSEM HOST
                     if (isHost) {
                         if (topic.endsWith('/join')) {
@@ -407,7 +485,7 @@
                         }
                     }
                     
-                    // JSEM KLIENT (I Host zachytává vlastní stav pro synchronizaci)
+                    // JSEM KLIENT 
                     if (!isHost && topic.endsWith('/state')) {
                         if (payload.type === 'lobby') {
                             gameState.players = payload.state.players;
@@ -559,7 +637,6 @@
                     }
                 }
 
-                // KONTROLA VÝHRY
                 if (player.hand.length === 0) {
                     gameState.winnerDeclared = true;
                     gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby... 🎉";
