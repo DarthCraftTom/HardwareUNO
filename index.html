@@ -673,7 +673,7 @@
         let myId = Math.random().toString(36).substring(2, 10); 
         let myName = '';
         let roomTopicBase = ''; 
-        let myOldTurnState = false; // pro detekci změny tahu
+        let myOldTurnState = false; 
         
         let gameState = {
             started: false,
@@ -832,7 +832,6 @@
             mqttClient.on('connect', () => {
                 clearTimeout(connectTimeout);
                 
-                // Přihlásíme se k odběru žádostí
                 mqttClient.subscribe(`${roomTopicBase}/action`);
                 mqttClient.subscribe(`${roomTopicBase}/join_request`); 
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
@@ -899,7 +898,6 @@
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
                 mqttClient.subscribe(`${roomTopicBase}/join_response_${myId}`);
                 
-                // Pošleme žádost o připojení hostiteli
                 mqttClient.publish(`${roomTopicBase}/join_request`, JSON.stringify({ id: myId, name: myName }));
                 setStatus("Ověřuji jméno...");
             });
@@ -988,7 +986,6 @@
                         }
                     }
 
-                    // Všichni přijímají State
                     if (topic.endsWith('/state')) {
                         if (payload.sfxEvent && payload.sfxEvent !== 'none') {
                             playSfx(payload.sfxEvent);
@@ -1229,19 +1226,23 @@
 
             if (state.mode === 'CPU') {
                 if (state.activeMB) {
-                    document.getElementById('active-mb').innerHTML = createCardHTML(state.activeMB);
+                    document.getElementById('active-mb').innerHTML = createCardHTML(state.activeMB, 'mod-card');
                     document.getElementById('active-mb').style.border = 'none';
+                    document.getElementById('active-mb').style.background = 'transparent';
                 } else {
                     document.getElementById('active-mb').innerHTML = 'Žádná deska<br><span style="font-size:9px; opacity:0.6;">(Volný socket)</span>';
                     document.getElementById('active-mb').style.border = '2px dashed #666';
+                    document.getElementById('active-mb').style.background = 'rgba(0,0,0,0.2)';
                 }
             }
             if (state.activePSU) {
-                document.getElementById('active-psu').innerHTML = createCardHTML(state.activePSU);
+                document.getElementById('active-psu').innerHTML = createCardHTML(state.activePSU, 'mod-card');
                 document.getElementById('active-psu').style.border = 'none';
+                document.getElementById('active-psu').style.background = 'transparent';
             } else {
                 document.getElementById('active-psu').innerHTML = 'Žádný zdroj<br><span style="font-size:9px; opacity:0.6;">(Neomezené TDP)</span>';
                 document.getElementById('active-psu').style.border = '2px dashed #666';
+                document.getElementById('active-psu').style.background = 'rgba(0,0,0,0.2)';
             }
 
             // Tvoje Karty a validace
