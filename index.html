@@ -49,7 +49,7 @@
         .lobby-players li:last-child { border-bottom: none; }
         
         /* --- HERNÍ PLOCHA --- */
-        #game-board { flex-grow: 1; padding: 5px; justify-content: space-between; width: 100%; max-width: 1200px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+        #game-board { flex-grow: 1; padding: 5px; justify-content: space-between; width: 100%; max-width: 1200px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; position: relative; }
         
         .section-title { font-size: 11px; font-weight: bold; opacity: 0.7; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; color: #fff; text-align: center; }
         
@@ -132,9 +132,110 @@
             .opp-name { font-size: 11px; max-width: 70px; }
             .opp-stats { font-size: 10px; }
         }
+
+        /* --- NASTAVENÍ ZVUKU --- */
+        #audio-settings-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid var(--primary);
+            border-radius: 50%;
+            width: 45px;
+            height: 45px;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            transition: transform 0.2s;
+        }
+        #audio-settings-btn:hover { transform: scale(1.1); }
+        
+        #audio-panel {
+            display: none;
+            position: fixed;
+            bottom: 75px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            border: 1px solid var(--primary);
+            border-radius: 10px;
+            padding: 15px;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.7);
+            width: 200px;
+        }
+        .audio-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .audio-row:last-child { margin-bottom: 0; }
+        .audio-row label { font-size: 14px; margin-right: 10px;}
+        input[type="range"] { flex-grow: 1; }
+
+        /* --- ANIMACE ROZDÁVÁNÍ KARET --- */
+        #deal-animation-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 500;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        
+        .flying-card {
+            position: absolute;
+            width: 60px; height: 90px;
+            background: repeating-linear-gradient(45deg, #333, #333 10px, #222 10px, #222 20px);
+            border: 2px solid #666;
+            border-radius: 6px;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+            animation: flyToPlayer 0.8s ease-out forwards;
+        }
+        
+        @keyframes flyToPlayer {
+            0% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
+            100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.5) rotate(var(--rot)); opacity: 0; }
+        }
+        
+        #deal-text {
+            color: var(--warning);
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #000;
+            margin-top: 120px;
+            animation: pulse-text 1s infinite alternate;
+        }
+        
+        @keyframes pulse-text {
+            from { opacity: 0.6; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1.05); }
+        }
+
     </style>
 </head>
 <body>
+
+    <div id="audio-settings-btn" onclick="toggleAudioPanel()">⚙️</div>
+    <div id="audio-panel">
+        <div style="font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;">Nastavení zvuku</div>
+        <div class="audio-row">
+            <label for="vol-music">🎵 Hudba:</label>
+            <input type="range" id="vol-music" min="0" max="1" step="0.1" value="0.3" onchange="updateVolumes()">
+        </div>
+        <div class="audio-row">
+            <label for="vol-sfx">🔊 Efekty:</label>
+            <input type="range" id="vol-sfx" min="0" max="1" step="0.1" value="0.7" onchange="updateVolumes()">
+        </div>
+    </div>
+
+    <div id="deal-animation-overlay">
+        <div id="deal-text">Rozdávám karty...</div>
+    </div>
 
     <div id="screen-menu" class="screen active-screen">
         <div class="menu-box">
@@ -166,7 +267,7 @@
                 <strong id="lobby-code" style="color: var(--warning); font-size: 28px; letter-spacing: 3px;">---</strong>
             </div>
             
-            <div class="section-title">Připojení hráči (<span id="lobby-count">0</span>/12)</div>
+            <div class="section-title">Připojení hráči (<span id="lobby-count">0</span>/20)</div>
             <ul class="lobby-players" id="lobby-player-list"></ul>
             
             <div id="host-controls" style="display: none;">
@@ -237,6 +338,128 @@
     </div>
 
     <script>
+        // --- AUDIO SYSTÉM ---
+        let audioCtx = null;
+        let bgMusicOscillator = null;
+        let bgMusicGain = null;
+        let masterMusicVol = 0.3;
+        let masterSfxVol = 0.7;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function updateVolumes() {
+            masterMusicVol = parseFloat(document.getElementById('vol-music').value);
+            masterSfxVol = parseFloat(document.getElementById('vol-sfx').value);
+            if (bgMusicGain) {
+                bgMusicGain.gain.setValueAtTime(masterMusicVol * 0.1, audioCtx.currentTime); // Ztlumeno, aby to nervalo uši
+            }
+        }
+
+        function toggleAudioPanel() {
+            const panel = document.getElementById('audio-panel');
+            panel.style.display = panel.style.display === 'none' || panel.style.display === '' ? 'block' : 'none';
+        }
+
+        // Generátor zvukových efektů (Synth)
+        function playSfx(type) {
+            if (!audioCtx || masterSfxVol === 0) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            let now = audioCtx.currentTime;
+            
+            if (type === 'start') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+                gain.gain.setValueAtTime(masterSfxVol, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.start(now); osc.stop(now + 0.5);
+            } else if (type === 'myTurn') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                gain.gain.setValueAtTime(masterSfxVol * 0.8, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'draw') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(300, now);
+                osc.frequency.linearRampToValueAtTime(200, now + 0.1);
+                gain.gain.setValueAtTime(masterSfxVol * 0.5, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'playCard') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(200, now);
+                osc.frequency.linearRampToValueAtTime(100, now + 0.1);
+                gain.gain.setValueAtTime(masterSfxVol * 0.5, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'ultimate') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(600, now + 0.4);
+                gain.gain.setValueAtTime(masterSfxVol, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                osc.start(now); osc.stop(now + 0.6);
+            } else if (type === 'win') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(523.25, now);
+                osc.frequency.setValueAtTime(659.25, now + 0.2);
+                osc.frequency.setValueAtTime(783.99, now + 0.4);
+                osc.frequency.setValueAtTime(1046.50, now + 0.6);
+                gain.gain.setValueAtTime(masterSfxVol, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 1.5);
+                osc.start(now); osc.stop(now + 1.5);
+            } else if (type === 'nextTurn') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300, now);
+                gain.gain.setValueAtTime(masterSfxVol * 0.3, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                osc.start(now); osc.stop(now + 0.15);
+            }
+        }
+
+        // Jednoduchá podkresová "hudba" (drone/pad)
+        function startBgMusic() {
+            if (!audioCtx || bgMusicOscillator) return;
+            bgMusicOscillator = audioCtx.createOscillator();
+            bgMusicGain = audioCtx.createGain();
+            
+            bgMusicOscillator.type = 'sine';
+            bgMusicOscillator.frequency.value = 110; // A2
+            
+            bgMusicGain.gain.value = masterMusicVol * 0.1; // Velmi potichu
+            
+            bgMusicOscillator.connect(bgMusicGain);
+            bgMusicGain.connect(audioCtx.destination);
+            
+            bgMusicOscillator.start();
+        }
+
+        function stopBgMusic() {
+            if (bgMusicOscillator) {
+                bgMusicOscillator.stop();
+                bgMusicOscillator.disconnect();
+                bgMusicOscillator = null;
+                bgMusicGain = null;
+            }
+        }
+
+        // Interakce pro odblokování audia
+        document.body.addEventListener('click', initAudio, { once: true });
+
+
         // --- Čtení URL Parametrů po načtení ---
         window.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
@@ -387,6 +610,7 @@
         let myId = Math.random().toString(36).substring(2, 10); 
         let myName = '';
         let roomTopicBase = ''; 
+        let myOldTurnState = false; // pro detekci změny tahu
         
         let gameState = {
             started: false,
@@ -450,6 +674,40 @@
             }
         }
 
+        // --- ANIMACE ROZDÁVÁNÍ ---
+        function triggerDealAnimation() {
+            return new Promise((resolve) => {
+                const overlay = document.getElementById('deal-animation-overlay');
+                overlay.style.display = 'flex';
+                
+                for(let i=0; i<15; i++) {
+                    setTimeout(() => {
+                        let card = document.createElement('div');
+                        card.className = 'flying-card';
+                        
+                        let tx = (Math.random() * 400 - 200) + 'px';
+                        let ty = (Math.random() * 400 - 200) + 'px';
+                        let rot = (Math.random() * 360) + 'deg';
+                        
+                        card.style.setProperty('--tx', tx);
+                        card.style.setProperty('--ty', ty);
+                        card.style.setProperty('--rot', rot);
+                        
+                        overlay.appendChild(card);
+                        playSfx('draw'); // zvuk rozdávání
+                        
+                        setTimeout(() => card.remove(), 800);
+                    }, i * 100);
+                }
+                
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                    resolve();
+                }, 2500);
+            });
+        }
+
+
         window.addEventListener('beforeunload', () => {
             if (mqttClient && mqttClient.connected) {
                 mqttClient.publish(`${roomTopicBase}/leave`, JSON.stringify({ id: myId, isHost: isHost }), { qos: 0 });
@@ -466,10 +724,12 @@
             toggleButtons(false);
             document.getElementById('host-controls').style.display = 'none';
             document.getElementById('client-waiting').style.display = 'none';
+            stopBgMusic();
         }
 
         // --- INICIALIZACE MQTT SÍTĚ ---
         function createGame() {
+            initAudio();
             let nameInput = document.getElementById('player-name').value.trim();
             if (!nameInput) return setStatus("Nejdřív zadej svou přezdívku!", true);
             myName = nameInput;
@@ -509,13 +769,14 @@
             mqttClient.on('connect', () => {
                 clearTimeout(connectTimeout);
                 
+                // Přihlásíme se k odběru žádostí
                 mqttClient.subscribe(`${roomTopicBase}/action`);
-                mqttClient.subscribe(`${roomTopicBase}/join`);
+                mqttClient.subscribe(`${roomTopicBase}/join_request`); // Místo rovnou /join posílá klient request
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
                 
                 document.getElementById('lobby-code').innerText = roomCode;
                 document.getElementById('host-controls').style.display = 'block';
-                document.getElementById('qr-container').style.display = 'none'; // reset
+                document.getElementById('qr-container').style.display = 'none'; 
                 
                 gameState.players = [{ id: myId, name: myName, hand: [], mods: [] }];
                 updateLobbyUI();
@@ -528,6 +789,7 @@
         }
 
         function joinGame() {
+            initAudio();
             let nameInput = document.getElementById('player-name').value.trim();
             if (!nameInput) return setStatus("Nejdřív zadej svou přezdívku!", true);
             myName = nameInput;
@@ -572,14 +834,11 @@
                 
                 mqttClient.subscribe(`${roomTopicBase}/state`);
                 mqttClient.subscribe(`${roomTopicBase}/leave`);
+                mqttClient.subscribe(`${roomTopicBase}/join_response_${myId}`); // Poslouchá na svou vlastní odpověď
                 
-                mqttClient.publish(`${roomTopicBase}/join`, JSON.stringify({ id: myId, name: myName }));
-                
-                document.getElementById('lobby-code').innerText = inputCode;
-                document.getElementById('client-waiting').style.display = 'block';
-                showScreen('screen-lobby');
-                toggleButtons(false);
-                setStatus("Připojeno. Čekáme na Hosta...");
+                // Pošleme žádost o připojení hostiteli
+                mqttClient.publish(`${roomTopicBase}/join_request`, JSON.stringify({ id: myId, name: myName }));
+                setStatus("Ověřuji jméno...");
             });
 
             setupMessageHandler();
@@ -587,7 +846,7 @@
 
         // Zpracování příchozích zpráv
         function setupMessageHandler() {
-            mqttClient.on('message', (topic, message) => {
+            mqttClient.on('message', async (topic, message) => {
                 try {
                     let payload = JSON.parse(message.toString());
                     
@@ -630,10 +889,20 @@
                     }
 
                     if (isHost) {
-                        if (topic.endsWith('/join')) {
-                            if (gameState.started || gameState.players.length >= 12) return;
-                            if (!gameState.players.find(p => p.id === payload.id)) {
+                        // KONTROLA UNIKÁTNÍHO JMÉNA
+                        if (topic.endsWith('/join_request')) {
+                            if (gameState.started || gameState.players.length >= 20) {
+                                mqttClient.publish(`${roomTopicBase}/join_response_${payload.id}`, JSON.stringify({ success: false, reason: "Hra už začala nebo je plná (max 20)." }));
+                                return;
+                            }
+                            // Kontrola jména (case-insensitive)
+                            let nameExists = gameState.players.some(p => p.name.toLowerCase() === payload.name.toLowerCase());
+                            if (nameExists) {
+                                mqttClient.publish(`${roomTopicBase}/join_response_${payload.id}`, JSON.stringify({ success: false, reason: "Toto jméno už v lobby je! Zvol jiné." }));
+                            } else {
+                                // Jméno je volné
                                 gameState.players.push({ id: payload.id, name: payload.name, hand: [], mods: [] });
+                                mqttClient.publish(`${roomTopicBase}/join_response_${payload.id}`, JSON.stringify({ success: true }));
                                 broadcastState();
                             }
                         } else if (topic.endsWith('/action')) {
@@ -641,12 +910,39 @@
                         }
                     }
                     
-                    if (!isHost && topic.endsWith('/state')) {
+                    if (!isHost) {
+                        // Zpracování odpovědi na připojení
+                        if (topic.endsWith(`/join_response_${myId}`)) {
+                            if (payload.success) {
+                                let inputCode = document.getElementById('join-code').value.trim().toUpperCase();
+                                if (inputCode.startsWith('HW-')) inputCode = inputCode.substring(3);
+                                document.getElementById('lobby-code').innerText = inputCode;
+                                document.getElementById('client-waiting').style.display = 'block';
+                                showScreen('screen-lobby');
+                                toggleButtons(false);
+                                setStatus("Připojeno. Čekáme na Hosta...");
+                            } else {
+                                mqttClient.end(true);
+                                toggleButtons(false);
+                                setStatus(payload.reason, true);
+                            }
+                        }
+                    }
+
+                    // Všichni přijímají State
+                    if (topic.endsWith('/state')) {
+                        
+                        // Detekce zvukových událostí při změně stavu (odchyceno v payloadu pro jistotu)
+                        if (payload.sfxEvent && payload.sfxEvent !== 'none') {
+                            playSfx(payload.sfxEvent);
+                        }
+
                         if (payload.type === 'lobby') {
                             gameState.players = payload.state.players;
                             updateLobbyUI();
                             if (gameState.started) {
                                 gameState.started = false;
+                                stopBgMusic();
                                 showScreen('screen-lobby');
                             }
                         } else if (payload.type === 'game') {
@@ -655,6 +951,9 @@
                                 document.getElementById('ui-mode-title').innerText = payload.state.mode + " Edice";
                                 document.getElementById('mb-container').style.display = payload.state.mode === 'CPU' ? 'block' : 'none';
                                 showScreen('screen-game');
+                                playSfx('start');
+                                await triggerDealAnimation();
+                                startBgMusic();
                             }
                             renderGameState(payload.state);
                         }
@@ -674,13 +973,17 @@
                 list.appendChild(li);
             });
             document.getElementById('lobby-count').innerText = gameState.players.length;
+            document.querySelector('.section-title').innerText = `Připojení hráči (${gameState.players.length}/20)`;
         }
 
-        function broadcastState() {
+        function broadcastState(sfxEvent = 'none') {
             if (!isHost) return;
-            let payload = { type: gameState.started ? 'game' : 'lobby', state: gameState };
+            let payload = { type: gameState.started ? 'game' : 'lobby', state: gameState, sfxEvent: sfxEvent };
             mqttClient.publish(`${roomTopicBase}/state`, JSON.stringify(payload));
-            if (gameState.started) { renderGameState(gameState); } 
+            if (gameState.started) { 
+                if(sfxEvent !== 'none') playSfx(sfxEvent); // Host si musí přehrát sám, nenaslouchá zprávě
+                renderGameState(gameState); 
+            } 
             else { updateLobbyUI(); }
         }
 
@@ -716,14 +1019,22 @@
             
             document.getElementById('ui-mode-title').innerText = gameState.mode + " Edice";
             document.getElementById('mb-container').style.display = gameState.mode === 'CPU' ? 'block' : 'none';
-            showScreen('screen-game');
-            broadcastState();
+            
+            async function hostInitAnim() {
+                showScreen('screen-game');
+                playSfx('start');
+                await triggerDealAnimation();
+                startBgMusic();
+                broadcastState('none'); // Rozešle stav ostatním (ti si animaci spustí jakmile dostanou state game a started=false)
+            }
+            hostInitAnim();
         }
 
         function hostReturnToLobby() {
             gameState.started = false;
             gameState.winnerDeclared = false;
-            broadcastState();
+            stopBgMusic();
+            broadcastState('none');
             showScreen('screen-lobby');
         }
 
@@ -745,11 +1056,13 @@
             if(pIndex !== gameState.turnIndex) return; 
 
             let player = gameState.players[pIndex];
+            let actionSfx = 'playCard';
 
             if (action === 'draw') {
                 let success = safeDrawFromDeck(player);
                 let msg = success ? player.name + " si lízl kartu a přeskočil tah." : player.name + " chtěl lízat, ale došly karty!";
-                hostAdvanceTurn(msg);
+                actionSfx = 'draw';
+                hostAdvanceTurn(msg, actionSfx);
             } 
             else if (action === 'playHW' || action === 'playMod') {
                 let isMod = (action === 'playMod');
@@ -762,10 +1075,12 @@
                     gameState.activeMB = card;
                     gameState.activeMB.turnsLeft = gameState.players.length * 5; 
                     msg = player.name + " aktivoval desku (Změna socketu)!";
+                    actionSfx = 'ultimate';
                 } else if (card.type === 'PSU') {
                     gameState.activePSU = card;
                     gameState.activePSU.turnsLeft = gameState.players.length * 5;
                     msg = player.name + " aktivoval zdroj (Limit TDP)!";
+                    actionSfx = 'ultimate';
                 } else {
                     gameState.discardPile.push(card);
                     if (card.brand !== topCard.brand && card.score > topCard.score) {
@@ -780,16 +1095,16 @@
                     gameState.winnerDeclared = true;
                     gameState.systemMessage = "🎉 " + player.name + " VYHRÁL HRU! Návrat do lobby... 🎉";
                     gameState.messageColor = '#f39c12';
-                    broadcastState();
+                    broadcastState('win');
                     
                     setTimeout(() => { hostReturnToLobby(); }, 5000);
                     return; 
                 }
-                hostAdvanceTurn(msg);
+                hostAdvanceTurn(msg, actionSfx);
             }
         }
 
-        function hostAdvanceTurn(baseMsg) {
+        function hostAdvanceTurn(baseMsg, actionSfx) {
             let modsMsg = "";
             if (gameState.activeMB) {
                 gameState.activeMB.turnsLeft--;
@@ -806,7 +1121,7 @@
             gameState.systemMessage = baseMsg + " " + modsMsg + "Hraje: " + nextPlayerName;
             gameState.messageColor = '#2980b9';
             
-            broadcastState();
+            broadcastState(actionSfx);
         }
 
         let currentClientState = null;
@@ -822,6 +1137,17 @@
             if (!me) return;
 
             let isMyTurn = (!state.winnerDeclared && state.players[state.turnIndex].id === myId);
+
+            // Zvuk pokud jsi na tahu a předtím jsi nebyl
+            if (isMyTurn && !myOldTurnState) {
+                playSfx('myTurn');
+            }
+            // Zvuk pro ostatní, že hraje někdo další
+            else if (!isMyTurn && myOldTurnState && !state.winnerDeclared) {
+                // Přehraje se jen při přechodu Z mého tahu na cizí tah (volitelně by to šlo udělat při jakékoliv změně)
+                playSfx('nextTurn');
+            }
+            myOldTurnState = isMyTurn;
 
             if(isMyTurn) {
                 msgBox.innerText = "Tvoje kolo! Předchozí tah: " + state.systemMessage.split("Hraje:")[0].trim();
@@ -891,7 +1217,6 @@
             const drawPile = document.getElementById('draw-pile');
             if(isMyTurn) {
                 drawPile.classList.remove('disabled');
-                // Pokud hráč nemá co hrát, zvýrazni balíček
                 if (!hasPlayableCard && !state.winnerDeclared) {
                     drawPile.classList.add('highlight-draw');
                 } else {
