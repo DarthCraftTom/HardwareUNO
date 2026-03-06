@@ -238,7 +238,7 @@
         <div class="audio-row">
             <div>🔊 Zvukové efekty:</div>
             <div class="audio-controls">
-                <input type="range" id="vol-sfx" min="0" max="1" step="0.1" value="0.7" onchange="updateVolumes()">
+                <input type="range" id="vol-sfx" min="0" max="1" step="0.1" value="0.3" onchange="updateVolumes()">
                 <label class="mute-label"><input type="checkbox" id="mute-sfx" onchange="updateVolumes()"> Vypnout</label>
             </div>
         </div>
@@ -351,11 +351,12 @@
     <script>
         // --- AUDIO SYSTÉM ---
         let audioCtx = null;
-        let droneOscillators = [];
         let bgMusicGain = null;
+        let generativeTimeouts = [];
+        let activeGenerativeNodes = [];
         
         let masterMusicVol = 0.3;
-        let masterSfxVol = 0.7;
+        let masterSfxVol = 0.3;
         let isMusicMuted = false;
         let isSfxMuted = false;
 
@@ -376,7 +377,7 @@
             
             // Plynulá změna hlasitosti hudby
             if (bgMusicGain && audioCtx) {
-                const targetVol = isMusicMuted ? 0 : masterMusicVol * 0.1;
+                const targetVol = isMusicMuted ? 0 : masterMusicVol * 0.5;
                 bgMusicGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.1); 
             }
         }
@@ -449,34 +450,69 @@
             }
         }
 
-        // Lepší hudba (Akord A moll s jemným rozladěním - Ambient Drone)
+        // Procedurálně generovaný ambientní podkres (Nekonečná smyčka)
         function startBgMusic() {
-            if (!audioCtx || droneOscillators.length > 0) return;
+            if (!audioCtx || bgMusicGain) return;
+            
             bgMusicGain = audioCtx.createGain();
-            bgMusicGain.gain.value = isMusicMuted ? 0 : masterMusicVol * 0.1;
+            bgMusicGain.gain.value = isMusicMuted ? 0 : masterMusicVol * 0.5;
             bgMusicGain.connect(audioCtx.destination);
-            
-            // Frakvence tvořící hluboký vesmírný ambient pad
-            const frequencies = [110, 130.81, 164.81]; 
-            
-            frequencies.forEach(freq => {
+
+            // Pentatonická stupnice A moll (hluboké tóny)
+            const frequencies = [110.00, 130.81, 146.83, 164.81, 196.00, 220.00, 261.63];
+
+            function playGenerativeNote() {
+                if (!bgMusicGain) return;
+
+                let freq = frequencies[Math.floor(Math.random() * frequencies.length)];
                 let osc = audioCtx.createOscillator();
-                osc.type = 'triangle';
-                osc.frequency.value = freq;
-                osc.detune.value = (Math.random() - 0.5) * 15; // přidá plnost zvuku
+                let gain = audioCtx.createGain();
                 
-                osc.connect(bgMusicGain);
-                osc.start();
-                droneOscillators.push(osc);
-            });
+                osc.type = Math.random() > 0.5 ? 'sine' : 'triangle';
+                osc.frequency.value = freq;
+                
+                osc.connect(gain);
+                gain.connect(bgMusicGain);
+                
+                let now = audioCtx.currentTime;
+                let duration = 4 + Math.random() * 4; // 4 až 8 sekund
+                
+                // Fade in a fade out
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(0.2, now + duration / 2);
+                gain.gain.linearRampToValueAtTime(0, now + duration);
+                
+                osc.start(now);
+                osc.stop(now + duration);
+                
+                activeGenerativeNodes.push({osc, gain});
+                
+                // Vyčištění z paměti po dohrání
+                setTimeout(() => {
+                    let idx = activeGenerativeNodes.findIndex(n => n.osc === osc);
+                    if (idx > -1) activeGenerativeNodes.splice(idx, 1);
+                }, duration * 1000 + 100);
+
+                // Načasování dalšího tónu (překrývání vrstev)
+                let nextTime = (1 + Math.random() * 3) * 1000;
+                generativeTimeouts.push(setTimeout(playGenerativeNote, nextTime));
+            }
+
+            // Spuštění 3 nezávislých vrstev najednou pro plnější zvuk
+            playGenerativeNote();
+            setTimeout(playGenerativeNote, 2000);
+            setTimeout(playGenerativeNote, 4000);
         }
 
         function stopBgMusic() {
-            droneOscillators.forEach(osc => {
-                osc.stop();
-                osc.disconnect();
+            generativeTimeouts.forEach(t => clearTimeout(t));
+            generativeTimeouts = [];
+            
+            activeGenerativeNodes.forEach(node => {
+                try { node.osc.stop(); node.osc.disconnect(); node.gain.disconnect(); } catch(e){}
             });
-            droneOscillators = [];
+            activeGenerativeNodes = [];
+
             if (bgMusicGain) {
                 bgMusicGain.disconnect();
                 bgMusicGain = null;
